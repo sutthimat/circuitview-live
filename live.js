@@ -37,7 +37,26 @@
     if (WIN) bar.appendChild(fullButton());
     else { const w = windowButton(); if (w) bar.appendChild(w); bar.appendChild(replaceButton()); }
     document.body.appendChild(bar);
+    drawnPointer(document);
+    f.addEventListener('load', () => { try { drawnPointer(f.contentDocument); } catch (e) { /* frame not reachable */ } });
     return Promise.resolve();
+  }
+  // ---- PowerPoint's web view shows no mouse pointer over an interactive page (the user saw it vanish over the frame,
+  // in edit view too). Each document draws its own arrow at the mouse position and hides the system one, so the
+  // pointer is always visible and never doubled.
+  const ARROW = '<svg width="20" height="24" viewBox="0 0 20 24" aria-hidden="true"><path d="M2 2 L2 19 L6.5 15 L9.5 22 L12.5 20.7 L9.6 14 L15.5 14 Z" fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+  function drawnPointer(doc) {
+    if (!doc || !doc.body || doc.getElementById('cvptr')) return;
+    const st = doc.createElement('style');
+    st.textContent = 'html, html * { cursor: none !important; } #cvptr { position: fixed; left: 0; top: 0; z-index: 2147483647; pointer-events: none; ' +
+      'width: 20px; height: 24px; margin: -1px 0 0 -1px; will-change: transform; } #cvptr[hidden] { display: none; }';
+    doc.head ? doc.head.appendChild(st) : doc.body.appendChild(st);
+    const p = doc.createElement('div'); p.id = 'cvptr'; p.hidden = true; p.innerHTML = ARROW;
+    doc.body.appendChild(p);
+    const at = e => { p.hidden = false; p.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`; };
+    doc.addEventListener('pointermove', at, { passive: true, capture: true });
+    doc.addEventListener('pointerdown', at, { passive: true, capture: true });
+    doc.documentElement.addEventListener('pointerleave', () => { p.hidden = true; });
   }
   async function bootView(emb) {
     window.CV_EMBED = emb;
