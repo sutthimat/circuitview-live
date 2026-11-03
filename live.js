@@ -18,7 +18,31 @@
     $('#livepick').hidden = true;
     try { if (localStorage.getItem('circuitview.details') === null) localStorage.setItem('circuitview.details', 'false'); } catch (e) { /* no storage */ }   // a slide starts with the waveforms, Details folded
     await load('app.js'); await load('snapshot.js'); await load('video.js');
+    slideLayout();
     addPlay();
+    for (let k = 0; k < 200 && !(S.meta && S.circ); k++) await new Promise(r => setTimeout(r, 50));
+    caption();
+    redraw();
+  }
+  // ---- a slide frame is small: wider circuit column, every waveform row fitted into the pane (nobody scrolls in a talk)
+  function slideLayout() {
+    const base = setLayout;
+    setLayout = function () {                                     // app.js calls it at the start of every redraw
+      base();
+      const root = document.documentElement;
+      if (root.classList.contains('lay-tall')) root.style.setProperty('--circw', Math.round(0.52 * innerWidth) + 'px');
+      const host = $('#rows'), avail = host && host.clientHeight - 2, rows = S.rows.filter(r => r.el);
+      if (!avail || !rows.length) return;
+      const want = rows.map(defaultH), sum = want.reduce((a, b) => a + b, 0);
+      rows.forEach((r, j) => { r.h = Math.max(minH(r), Math.floor(want[j] * avail / sum)); r.el.row.style.height = r.h + 'px'; });
+    };
+  }
+  // the case (method, m_a, φ) in the Details header, so a slide says what it shows
+  function caption() {
+    const lab = $('#infohead > span:not(#infosum)'); if (!lab || !S.meta) return;
+    const t = prettyText(S.meta.title).replace(/\\_/g, '_').replace(/\b(alpha|beta|gamma|delta|Delta|theta|phi|omega|tau)\b/g, w => GREEK[w]);
+    lab.innerHTML = esc(t).replace(/\b([A-Za-z])_([A-Za-z0-9]{1,3})\b/g, '<span class="tex"><i>$1</i><sub>$2</sub></span>');
+    lab.id = 'livecap'; $('#infohead').title = 'show or hide the details';
   }
   function valid(d) { return d && d.format === FMT && d.json && d.text && d.arr; }
 
@@ -62,7 +86,7 @@
     const bar = $('#bar'); if (!bar) return;
     const p = document.createElement('button'); p.id = 'liveplay'; p.className = 'tog'; p.setAttribute('aria-pressed', 'false');
     p.title = 'sweep the cursor across the view'; p.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 2v8l6-4z"/></svg>Play';
-    const grow = bar.querySelector('.grow'); bar.insertBefore(p, grow); bar.insertBefore(replaceButton(), grow.nextSibling);
+    bar.insertBefore(p, bar.firstChild); bar.insertBefore(replaceButton(), $('#xport'));   // Play leads; Replace beside Export
     let raf = 0, last = 0;
     const stop = () => { cancelAnimationFrame(raf); raf = 0; p.setAttribute('aria-pressed', 'false'); FLOW.last = 0; flowStart(); };
     const tick = ts => {

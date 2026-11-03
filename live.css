@@ -7,6 +7,15 @@
 .cv-live #egates { display: none; }
 .cv-live main { padding: 6px 6px 0; }
 .cv-live #help { display: none; }
+/* waveform label column without the row-edit tools (+ x): narrower, nothing to edit by accident in a talk */
+:root.cv-live { --labw: 204px; --toolw: 0px; --yaxw: 42px; }
+.cv-live .tools { display: none; }
+/* circuit: small insets, the legend on two short lines */
+.cv-live #svghost { inset: 6px 8px 44px 8px; }
+:root.cv-live.lay-tall #legend { height: 36px; left: 8px; right: 8px; bottom: 6px; font-size: 11px; row-gap: 2px; column-gap: 12px; }
+.cv-live #legend > span { gap: 5px; }
+#livecap { font-weight: 400; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#livecap .tex { font-size: 1.1em; }
 
 #livepick { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 14px; background: var(--ground); font-family: var(--f-ui); color: var(--ink-2); text-align: center; padding: 24px; }

@@ -42,6 +42,18 @@ function texSVG(tex, size) {
   if (m[4]) out += run(m[4], size, 0);
   return out;
 }
+// run title with its math: m_a -> italic m, subscript a (Times); Greek names -> letters
+function titleSVG(s, size) {
+  const t = prettyText(s).replace(/\\_/g, '_').replace(/\b(alpha|beta|gamma|delta|Delta|theta|phi|omega|tau)\b/g, w => GREEK[w]);
+  const parts = t.split(/\b([A-Za-z])_([A-Za-z0-9]{1,3})\b/), dy = r2(size * 0.28);
+  let out = '', down = false;
+  parts.forEach((p, k) => {
+    if (k % 3 === 0) { if (p) out += down ? `<tspan dy="${-dy}">${sx(p)}</tspan>` : sx(p); down = down && !p; }
+    else if (k % 3 === 1) out += `<tspan${down ? ` dy="${-dy}"` : ''} font-family="${SNAP.MATH}" font-style="italic" font-size="${r2(size * 1.12)}">${sx(p)}</tspan>`;
+    else { out += `<tspan font-size="${r2(size * 0.78)}" dy="${dy}">${sx(p)}</tspan>`; down = true; }
+  });
+  return out;
+}
 // {x} inside a text = math italic (legend items)
 const mixSVG = (t, size) => sx(t).replace(/\{([^}]*)\}/g, (m, x) => `<tspan font-family="${SNAP.MATH}" font-style="italic" font-size="${r2(size * 1.12)}">${x}</tspan>`);
 
@@ -197,6 +209,7 @@ function wavesSVG(x, y, W, H, L = 'full') {          // L: full | base (no curso
   // top layer over a base layer with every tick label: paper under the flag hides the labels it would touch
   if (L === 'top') for (const tt of ticks) {                 // exactly the labels the full picture leaves out
     const tx = X0 + X(tt, pw), tw = 7.5 * (us ? ((tt - ref) * 1e6).toFixed(d) : (tt * 1e3).toFixed(d)).length;
+    if (tx - tw / 2 < X0 + 2 || tx + tw / 2 > X0 + pw - 2) continue;   // the base layer leaves these out too
     if (tx + tw / 2 > fx - 6 && tx - tw / 2 < fx + fw + 6) out += `<rect x="${r2(tx - tw / 2 - 3)}" y="${r2(ay + 8)}" width="${r2(tw + 6)}" height="17" fill="#ffffff"/>`;
   }
   o(T, `<line x1="${r2(xc)}" y1="${y}" x2="${r2(xc)}" y2="${r2(ay + 7)}" stroke="${cur}" stroke-width="1.2"/>` +
@@ -217,7 +230,7 @@ function snapshotSVG(opts = {}) {
   const ink = tok('--ink'), slate = tok('--ink-3');
   let body = '';
   // header: run title (left), cursor time (right)
-  if (B) body += `<text x="${PAD}" y="${PAD + 10}" font-family="${SNAP.UI}" font-size="15" fill="${tok('--ink-2')}">${sx(plainText(S.meta.title))}</text>`;
+  if (B) body += `<text x="${PAD}" y="${PAD + 10}" font-family="${SNAP.UI}" font-size="15" fill="${tok('--ink-2')}">${titleSVG(S.meta.title, 15)}</text>`;
   if (T) body += `<text x="${W - PAD}" y="${PAD + 10}" text-anchor="end" font-family="${SNAP.UI}" font-size="17" font-weight="600" fill="${tok('--cursor')}"><tspan font-family="${SNAP.MATH}" font-style="italic" font-weight="400" fill="${slate}">t</tspan><tspan fill="${slate}" font-weight="400"> = </tspan>${(S.cur * 1e3).toFixed(4)} ms</text>`;
   const top = PAD + HEAD, avail = H - top - PAD;
   let cx, cy, cw, ch, wx, wy, ww, wh;
