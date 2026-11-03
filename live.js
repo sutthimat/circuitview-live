@@ -20,14 +20,16 @@
   // self-contained HTML document, e.g. a course demo). Both live in the slide's settings the same way.
   const isPage = d => !!(d && d.format === FMT && d.kind === 'page' && typeof d.html === 'string');
   const boot = d => isPage(d) ? bootPage(d) : bootView(d);
-  // ---- an interactive page: shown in a sandboxed frame over the whole slide (its scripts run, but it cannot reach the
-  // add-in or the document). <html data-host="slide"> tells the page that it sits in a 16:9 slide frame.
+  // ---- an interactive page: shown in a frame over the whole slide. The frame keeps the add-in's origin (the user's
+  // decision, 2026-11-03): with an opaque origin the frame ran out of process and PowerPoint's web view showed no mouse
+  // pointer over it. So a page can reach the add-in: load only .cvlive files you made yourself. The sandbox still
+  // blocks navigation, pop-ups and forms. <html data-host="slide"> tells the page that it sits in a slide frame.
   function bootPage(d) {
     window.CV_EMBED = d;
     $('#livepick').hidden = true;
     document.documentElement.classList.add('cv-page');
     const f = document.createElement('iframe'); f.id = 'livepage'; f.title = d.title || 'interactive page';
-    f.setAttribute('sandbox', 'allow-scripts allow-pointer-lock');
+    f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-pointer-lock');
     const mark = '<script>document.documentElement.setAttribute("data-host","slide")<\/script>';
     f.srcdoc = /<head[^>]*>/i.test(d.html) ? d.html.replace(/<head[^>]*>/i, m => m + mark) : mark + d.html;
     document.body.appendChild(f);
