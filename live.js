@@ -6,7 +6,8 @@
 // Outside Office (a plain browser tab) the picker works too, without saving (for testing the page).
 'use strict';
 (function () {
-  const KEY = 'circuitview', FMT = 'circuitview-live/1';
+  const KEY = 'circuitview', FMT = 'circuitview-live/1', WKEY = 'circuitview.window';
+  const WIN = new URLSearchParams(location.search).has('window');   // this page is the view's own window (windowButton)
   const $ = s => document.querySelector(s);
   let settings = null;
 
@@ -158,12 +159,58 @@
     return b;
   }
 
+  // ---- Slide Show shows a content add-in through a slow path (measured: the page draws 100 frames/s, the screen
+  // shows far fewer; the edit view at the same zoom is smooth). 'Window' opens the same view in its own window (Office
+  // dialog), which the slide show does not pass through. The window gets the slide's data through localStorage
+  // (same site) or, if that is empty, in pieces from the slide (DialogApi 1.2 messageChild).
+  const CHUNK = 200000;
+  function windowButton() {
+    if (!(window.Office && Office.context && Office.context.ui && Office.context.ui.displayDialogAsync)) return null;
+    const b = document.createElement('button'); b.id = 'livewin'; b.title = 'open this view in its own window: smooth in Slide Show';
+    b.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 4.5v-3h3M10.5 4.5v-3h-3M1.5 7.5v3h3M10.5 7.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>Window';
+    b.onclick = () => {
+      const d = window.CV_EMBED, txt = JSON.stringify(d);
+      try { localStorage.setItem(WKEY, txt); } catch (e) { /* too large or no storage: messageChild below */ }
+      const url = location.href.split(/[?#]/)[0] + '?window=1';
+      Office.context.ui.displayDialogAsync(url, { width: 90, height: 90, displayInIframe: false }, r => {
+        if (r.status !== 'succeeded') return toast('the window could not open: ' + (r.error && r.error.message || r.status), true);
+        const dlg = r.value;
+        dlg.addEventHandler(Office.EventType.DialogMessageReceived, a => {
+          if (a.message !== 'ready') return;
+          const n = Math.ceil(txt.length / CHUNK);
+          for (let k = 0; k < n; k++) dlg.messageChild(JSON.stringify({ n, k, s: txt.slice(k * CHUNK, (k + 1) * CHUNK) }));
+        });
+      });
+    };
+    return b;
+  }
+  // inside the window: full screen on the window's own monitor (Esc leaves it)
+  function fullButton() {
+    const b = document.createElement('button'); b.id = 'livefull'; b.title = 'full screen (Esc to leave)';
+    b.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 4.5v-3h3M10.5 4.5v-3h-3M1.5 7.5v3h3M10.5 7.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>Full screen';
+    b.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(e => toast(String(e.message || e), true));
+    return b;
+  }
+  function windowStart() {
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(WKEY)); localStorage.removeItem(WKEY); } catch (e) { d = null; }
+    if (valid(d)) return boot(d);
+    const parts = []; let got = 0;
+    Office.context.ui.addHandlerAsync(Office.EventType.DialogParentMessageReceived, a => {
+      const m = JSON.parse(a.message);
+      if (parts[m.k] === undefined) { parts[m.k] = m.s; got++; }
+      if (got === m.n) { const v = JSON.parse(parts.join('')); if (valid(v)) boot(v); else picker('the view did not arrive'); }
+    }, () => Office.context.ui.messageParent('ready'));
+  }
+
   // ---- Play: the cursor sweeps the view (about 1.5 s per switching state, as the video), arrowheads keep flowing
   function addPlay() {
     const bar = $('#bar'); if (!bar) return;
     const p = document.createElement('button'); p.id = 'liveplay'; p.className = 'tog'; p.setAttribute('aria-pressed', 'false');
     p.title = 'sweep the cursor across the view'; p.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 2v8l6-4z"/></svg>Play';
-    bar.insertBefore(p, bar.firstChild); bar.insertBefore(replaceButton(), $('#xport'));   // Play leads; Replace beside Export
+    bar.insertBefore(p, bar.firstChild);                                                     // Play leads; Window or Replace beside Export
+    if (WIN) bar.insertBefore(fullButton(), $('#xport'));
+    else { const w = windowButton(); if (w) bar.insertBefore(w, $('#xport')); bar.insertBefore(replaceButton(), $('#xport')); }
     let raf = 0, last = 0;
     const stop = () => { cancelAnimationFrame(raf); raf = 0; p.setAttribute('aria-pressed', 'false'); FLOW.last = 0; flowStart(); };
     const tick = ts => {
@@ -197,6 +244,9 @@
     if (!u) return start();
     fetch(u).then(r => r.json()).then(d => { if (!valid(d)) throw new Error('not a .cvlive'); return boot(d); }).catch(e => picker(String(e.message || e)));
   };
-  if (window.Office && Office.onReady) Office.onReady(info => { if (info.host) { settings = Office.context.document.settings; start(); } else test(); });
+  if (window.Office && Office.onReady) Office.onReady(info => {
+    if (WIN && Office.context.ui && Office.context.ui.messageParent) { document.documentElement.classList.add('cv-window'); windowStart(); }
+    else if (info.host) { settings = Office.context.document.settings; start(); } else test();
+  });
   else test();
 })();
