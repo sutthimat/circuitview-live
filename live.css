@@ -1,0 +1,20 @@
+/* CircuitView Live: the app inside a slide (on top of app.css). A slide frame is small (about 960 x 540 px), so the
+   toolbar keeps only what a talk needs: time view, edges, flow, Play, the readout. */
+:root.cv-live { --bar-h: 40px; }
+.cv-live #bar { gap: 8px; padding: 0 8px; }
+.cv-live .brand, .cv-live #run, .cv-live #addrow, .cv-live #reset { display: none; }
+.cv-live .readout { gap: 12px; padding: 0 10px; }
+.cv-live #egates { display: none; }
+.cv-live main { padding: 6px 6px 0; }
+.cv-live #help { display: none; }
+
+#livepick { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; background: var(--ground); font-family: var(--f-ui); color: var(--ink-2); text-align: center; padding: 24px; }
+#livepick[hidden] { display: none; }
+#livepick.over { background: var(--well); outline: 2px dashed var(--ctl); outline-offset: -12px; }
+#livepick .pt { font-size: 18px; font-weight: 600; color: var(--ink); }
+#livepick label { display: inline-flex; align-items: center; height: var(--ctl-h); padding: 0 14px; border: 1px solid var(--ctl);
+  border-radius: var(--r); background: var(--surface); color: var(--ink); cursor: pointer; }
+#livepick label:hover { background: var(--ctl-hover); }
+#livemsg { max-width: 520px; font-size: 13px; color: var(--ink-3); }
+#livefile { display: none; }

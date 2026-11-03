@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" class="cv-live">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CircuitView Live</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 14'%3E%3Cpath d='M1 12.5h3.5V7h3.5V1.5h4V7h3.5v5.5H19' fill='none' stroke='%231f2328' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="live.css">
+</head>
+<body>
+<header id="bar">
+  <span class="brand" title="CircuitView: circuit state at the time cursor">
+    <svg class="mark" viewBox="0 0 20 14" aria-hidden="true"><path d="M1 12.5h3.5V7h3.5V1.5h4V7h3.5v5.5H19"/><path class="mark-o" d="M1 7h18"/></svg>
+    <span class="brand-name">CircuitView</span>
+  </span>
+  <select id="run" title="simulation run"></select>
+  <span class="grp" role="group" aria-label="time view">
+    <button id="fit" title="show the whole record">Fit</button>
+    <button id="per" title="one sampling period around the cursor">1 <span class="tex"><i>T</i><sub>sp</sub></span></button>
+    <button id="cyc" title="one fundamental cycle around the cursor">1 cycle</button>
+    <button id="reset" title="whole record, automatic y ranges, default row heights">Reset</button>
+  </span>
+  <span class="grp" role="group" aria-label="switching edges">
+    <button id="prev" title="previous switching edge (←)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7.5 2.5 4 6l3.5 3.5"/></svg>Edge</button>
+    <button id="next" title="next switching edge (→)">Edge<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6 4.5 9.5"/></svg></button>
+  </span>
+  <button id="flow" class="tog" aria-pressed="true" title="arrowheads flow with the current, speed ∝ |i|; they rest while the cursor moves and stop after one minute without input"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h1.4M4 6h1.4M7 6h3.6M8.4 3.8 10.6 6 8.4 8.2"/></svg>Flow</button>
+  <span class="readout" title="cursor time; time since the previous switching edge and the gates that switched there">
+    <span class="rd"><span class="k tex"><i>t</i></span><span id="tcur" class="num-t"></span></span>
+    <span class="rd"><span class="k tex">Δ<i>t</i></span><span id="tedge" class="num-t"></span></span>
+    <span id="egates" class="tex"></span>
+  </span>
+  <span class="grow"></span>
+  <button id="xport" aria-haspopup="menu" aria-expanded="false" title="PowerPoint, interactive HTML file, SVG picture"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5v6M3.4 4.9 6 7.5l2.6-2.6M1.8 8.5v2h8.4v-2"/></svg>Export</button>
+  <button id="addrow" title="add a waveform row"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8"/></svg>Add row</button>
+</header>
+<main>
+  <section id="top">
+    <div id="circ"><div id="svghost"></div><div id="legend"></div></div>
+    <aside id="infobox" class="card">
+      <button id="infohead" type="button" aria-expanded="true" title="show or hide the details"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg><span>Details</span><span id="infosum"></span></button>
+      <div id="info"></div>
+    </aside>
+  </section>
+  <div id="split" title="drag to resize"><span class="grip"></span></div>
+  <section id="waves" class="card">
+    <div id="rows"></div>
+    <div id="axis"><div class="lab axlab" id="axlab"></div><div class="plot" id="axplot"><canvas id="axiscv"></canvas></div></div>
+    <div id="over" title="whole record: drag to move the view"><div class="lab axlab">Record</div><div class="plot"><canvas id="overcv"></canvas></div></div>
+  </section>
+</main>
+<div id="xmenu" role="menu" hidden>
+  <div class="xh">PowerPoint (open presentation)</div>
+  <button role="menuitem" data-x="ppt-new">Send to a new slide</button>
+  <button role="menuitem" data-x="ppt-here">Insert on the current slide</button>
+  <button role="menuitem" data-x="ppt-update">Update the selected picture</button>
+  <button role="menuitem" data-x="ppt-open">Open the selected picture here</button>
+  <button role="menuitem" data-x="ppt-inter">Clickable slides of this view (click the waveforms; nothing to install)</button>
+  <button role="menuitem" data-x="ppt-video">Video slide of this view (plays by itself; nothing to install)</button>
+  <button role="menuitem" data-x="ppt-seq">One <span class="tex"><i>T</i><sub>sp</sub></span> as slides, one per switching edge</button>
+  <div class="xh">Files</div>
+  <button role="menuitem" data-x="html">Interactive HTML file (opens without CircuitView)</button>
+  <button role="menuitem" data-x="svg">Picture as SVG</button>
+  <button role="menuitem" data-x="cvlive">Live slide file (.cvlive) for the CircuitView Live add-in</button>
+  <button role="menuitem" data-x="mp4">Video file (.mp4)</button>
+</div>
+<div id="pptbar" hidden><span class="pt">PowerPoint</span><span id="pptmsg"></span><span id="pptacts"></span></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<footer id="help">
+  <span><kbd>Wheel</kbd>zoom</span><span><kbd>Drag</kbd>cursor</span><span><kbd>Shift + drag</kbd>pan</span>
+  <span><kbd>Ctrl + wheel</kbd>y zoom</span><span><kbd>Double-click</kbd>auto-fit row</span>
+  <span><kbd>← →</kbd>switching edges</span><span><kbd>Shift + ← →</kbd>1 µs steps</span>
+  <span>Drag a row's lower edge to resize it</span>
+</footer>
+<div id="livepick" hidden>
+  <span class="pt">CircuitView Live</span>
+  <span>Choose the view for this slide: a <b>.cvlive</b> file from CircuitView (Export &gt; Live slide file).</span>
+  <label for="livefile">Choose a .cvlive file</label>
+  <input id="livefile" type="file" accept=".cvlive,application/json">
+  <span id="livemsg">The slide keeps the view; people who open the presentation with this add-in see it live.</span>
+</div>
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<script src="live.js"></script>
+</body>
+</html>

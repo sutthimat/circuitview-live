@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:type="ContentApp">
+  <Id>6d7c2f0e-5b1a-4c3e-9f41-8a2b7c5d9e13</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>CircuitView</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="CircuitView Live"/>
+  <Description DefaultValue="A live CircuitView view in the slide: the circuit's conduction paths at a time cursor on the simulated waveforms. Drag the cursor, step through switching edges, zoom, play. The slide keeps its own data."/>
+  <IconUrl DefaultValue="https://sutthimat.github.io/circuitview-live/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://sutthimat.github.io/circuitview-live/icon-80.png"/>
+  <SupportUrl DefaultValue="https://sutthimat.github.io/circuitview-live/"/>
+  <AppDomains>
+    <AppDomain>https://sutthimat.github.io</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Presentation"/>
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://sutthimat.github.io/circuitview-live/index.html"/>
+    <RequestedWidth>960</RequestedWidth>
+    <RequestedHeight>540</RequestedHeight>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <AllowSnapshot>true</AllowSnapshot>
+</OfficeApp>

@@ -1,0 +1,364 @@
+/* CircuitView interface (Instrument direction, chosen by the user 2026-11-03):
+   Segoe UI Variable for all interface text and numbers (tabular lining figures), math symbols in Times New Roman
+   italic scaled to the Segoe x-height (font-size-adjust) so they match the drawing; cool grey ground, white
+   instrument panels, compact 28-px controls, one inset readout.
+   Type scale: caption / body / lead, two weights (400, 600). Space: 4 / 8 / 12 / 16 / 24 px.
+   Every waveform row, the time axis and the overview share one column structure:
+   [ label column var(--labw) | plot (flex) | scrollbar gutter var(--sbw) ]  -> identical plot x-extent.
+   The conduction colours (phase colours, style C spotlight) are fixed tokens. */
+
+/* ================================================================ tokens */
+:root {
+  /* phase and conduction colours */
+  --pa: #1f5fbf; --pb: #c0392b; --pc: #2e8b57;            /* phase a / b / c (as in the user's drawings) */
+  --pd: #a8661c; --pe: #6b4fa0; --pf: #1f7f86;            /* further legs d / e / f */
+  --dev-on: #1d1d1f; --dev-off: #c3c8cf;                  /* device gate on (not conducting) / gate off */
+  --cond-ink: #15181c; --gold: #b8912a;                    /* conducting in variant B / current via the neutral point */
+  --dc: #2c3239;                                           /* dc source current (same ink as the battery symbol) */
+  --cursor: #d0021b;
+  --labw: 232px; --toolw: 24px; --yaxw: 52px; --sbw: 10px; --infow: 360px;
+
+  /* ---- interface */
+  --ground: #e9ebee; --surface: #ffffff; --inset: #f3f4f6; --well: #f5f6f8;
+  --ink: #16191d; --ink-2: #4a525b; --ink-3: #87909a;
+  --hair: #d9dde2; --rule: #e8ebee; --grid: #eef0f2; --tick: #b3bac2; --zero: #cbd0d6;
+  --ctl: #cdd3d9; --ctl-hover: #f2f4f6; --press: #e6e9ec; --focus: rgba(31, 95, 191, .5);
+  --lab-bg: #f7f8f9; --ov-bg: #f3f4f6; --ov-trace: #b9c0c8; --ov-win: rgba(31, 95, 191, .10); --ov-edge: rgba(31, 95, 191, .55);
+  --np-tag: #f5edd6; --np-ink: #7a5c12; --bit-on: #4a525b;
+  --r: 6px; --r-s: 4px; --flag-r: 3;
+  --f-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --f-disp: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --f-math: "Times New Roman", Times, serif;
+  --math-x: .5;                                            /* math x-height = UI x-height (Segoe 0.50 em) */
+  --f-canvas: "Segoe UI", sans-serif;                      /* static Segoe UI: tabular digits by default */
+  --fs-cap: 11px; --fs-body: 13px; --fs-lead: 15px; --fs-tick: 11px;
+  --fs-sym: 15px;                                          /* signal names in the label column */
+  --ctl-h: 28px; --bar-h: 48px;
+
+  font-family: var(--f-ui); font-size: var(--fs-body); color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ================================================================ base */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--ground); }
+body { display: flex; flex-direction: column; overflow: hidden; line-height: 1.4; }
+.mono, .num, .num-t { font-family: var(--f-ui); font-variant-numeric: tabular-nums lining-nums; }
+sub, sup { font-size: 70%; line-height: 0; position: relative; }
+sub { vertical-align: -0.3em; } sup { vertical-align: 0.45em; }
+/* math symbols: italic serif, its x-height matched to the interface text */
+.tex { font-family: var(--f-math); font-size-adjust: var(--math-x); }
+.tex i, .tex sub, .tex sup { font-style: italic; }
+.tex .up, #info .dev .up { font-style: normal; }   /* figures upright, letters italic (as MathType sets them) */
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+button, select { font: inherit; color: inherit; }
+button:focus-visible, select:focus-visible, .tool:focus-within { outline: 2px solid var(--focus); outline-offset: 1px; position: relative; z-index: 2; }
+
+/* ================================================================ header bar */
+#bar { display: flex; align-items: center; gap: 12px; height: var(--bar-h); padding: 0 16px; flex: none;
+  background: var(--surface); border-bottom: 1px solid var(--hair); white-space: nowrap; overflow: hidden; }
+.brand { display: inline-flex; align-items: center; gap: 8px; flex: none; padding-right: 12px; margin-right: 4px;
+  border-right: 1px solid var(--rule); height: 24px; }
+.mark { width: 20px; height: 14px; fill: none; stroke: var(--ink); stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+.mark .mark-o { stroke: var(--cursor); stroke-width: 1; stroke-dasharray: 1.5 2; }
+.brand-name { font-family: var(--f-disp); font-size: var(--fs-lead); font-weight: 600; letter-spacing: -.005em; }
+#bar button, #bar select { height: var(--ctl-h); padding: 0 12px; border: 1px solid var(--ctl); background: var(--surface);
+  border-radius: var(--r); cursor: pointer; line-height: calc(var(--ctl-h) - 2px); color: var(--ink);
+  transition: background-color .12s, border-color .12s, color .12s; }
+#bar select { flex: 0 1 440px; min-width: 200px; padding: 0 32px 0 12px; text-overflow: ellipsis; appearance: none;
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2387909a' stroke-width='1.3'/%3E%3C/svg%3E") no-repeat right 12px center; }
+#bar button:hover, #bar select:hover { background-color: var(--ctl-hover); }
+#bar button:active { background-color: var(--press); }
+#bar button svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+#prev, #next, #addrow, #flow, #xport { display: inline-flex; align-items: center; gap: 6px; }
+/* on/off switch button: pressed = on (inset well, ink text) */
+#bar button.tog[aria-pressed="true"] { background-color: var(--press); border-color: var(--ink-3); }
+
+#prev { padding-left: 8px; } #next { padding-right: 8px; }
+#bar button .tex { font-size: 1.08em; }
+/* segmented groups: one outline, inner hairline separators (no doubled borders) */
+.grp { display: inline-flex; flex: none; border: 1px solid var(--ctl); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.grp button { border: none !important; border-radius: 0 !important; height: calc(var(--ctl-h) - 2px) !important; line-height: calc(var(--ctl-h) - 4px) !important; }
+.grp button + button { box-shadow: inset 1px 0 0 var(--rule); }
+.grow { flex: 1; }
+/* the readout: the one instrument display of the page (cursor time, time since the last edge, gates that switched) */
+.readout { display: inline-flex; align-items: center; gap: 20px; height: var(--ctl-h); padding: 0 14px; flex: none;
+  border-radius: var(--r); background: var(--well); box-shadow: inset 0 0 0 1px var(--rule); }
+.rd { display: inline-flex; align-items: baseline; gap: 8px; }
+.readout .k { color: var(--ink-3); font-size: var(--fs-lead); }
+.num-t { font-size: var(--fs-lead); font-weight: 600; text-align: right; color: var(--ink); }
+#tcur { width: 10.4ch; color: var(--cursor); }
+#tedge { width: 7.6ch; }
+#egates { width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); font-size: var(--fs-lead); }
+#addrow svg { margin-left: -2px; }
+
+/* ================================================================ workspace layout */
+/* wide drawings (lay-wide) stack circuit + details over the waveforms; tall drawings (lay-tall) put the circuit in a
+   full-height left column and the details drawer + waveforms on the right (set in setLayout) */
+main { flex: 1; display: grid; min-height: 0; padding: 8px 8px 0; column-gap: 8px;
+  grid-template-columns: minmax(0, 1fr) var(--infow); grid-template-rows: var(--toph, 43vh) 8px minmax(0, 1fr);
+  grid-template-areas: "circ info" "split split" "waves waves"; }
+#top { display: contents; }
+#circ { grid-area: circ; position: relative; min-width: 0; min-height: 0; }
+#infobox { grid-area: info; display: flex; flex-direction: column; min-height: 0; }
+#split { grid-area: split; }
+#waves { grid-area: waves; }
+:root.lay-tall main { grid-template-columns: var(--circw, 40vw) 8px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "circ split info" "circ split waves"; column-gap: 0; row-gap: 8px; }
+:root.lay-tall #circ { margin-bottom: 8px; }
+:root.lay-tall #svghost { bottom: 80px; }
+:root.lay-tall #legend { height: 52px; flex-wrap: wrap; align-content: center; row-gap: 4px; white-space: normal; }
+:root.lay-tall #infobox { max-height: max(44vh, 416px); }   /* at least Legs + DC link (Vdc, C1, C2, O) of a 3-leg circuit (1366 x 768) */
+#infohead { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; flex: none; width: 100%;
+  border: none; border-bottom: 1px solid var(--rule); background: var(--surface); font-weight: 600; color: var(--ink);
+  cursor: pointer; text-align: left; }
+#infohead:hover { background: var(--ctl-hover); }
+#infohead svg { width: 12px; height: 12px; fill: none; stroke: var(--ink-3); stroke-width: 1.4; stroke-linecap: round;
+  stroke-linejoin: round; transition: transform .12s; }
+#infobox.collapsed #infohead svg { transform: rotate(-90deg); }
+#infobox.collapsed #infohead { border-bottom: none; }
+#infobox.collapsed #info { display: none; }
+/* wide layout, details collapsed: the card shrinks to its header and the circuit takes the width */
+#infobox.collapsed { align-self: start; }
+:root.lay-wide main:has(#infobox.collapsed) { grid-template-columns: minmax(0, 1fr) auto; }
+#infosum { margin-left: auto; display: inline-flex; gap: 16px; font-weight: 600; color: var(--ink); }
+#infosum > span { display: inline-flex; align-items: center; gap: 6px; }
+:root.lay-tall #info { width: auto; column-width: 300px; column-gap: 32px; column-rule: 1px solid var(--rule); }
+:root.lay-tall #info h4 { break-after: avoid; }
+:root.lay-tall #info table, :root.lay-tall #info .run, :root.lay-tall #info .note { break-inside: avoid; }
+:root.lay-tall #split { cursor: col-resize; }
+:root.lay-tall #split .grip { width: 4px; height: 40px; }
+.card { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r); overflow: hidden; }
+
+/* ================================================================ circuit + legend */
+/* the drawing is the page's subject: a plain white sheet, no frame (Details and the waveforms are framed panels) */
+#circ { background: var(--surface); }
+#svghost { position: absolute; inset: 16px 24px 52px 24px; display: flex; align-items: center; justify-content: center;
+  color: var(--ink-3); }
+#svghost svg { width: 100%; height: 100%; display: block; }
+#legend { position: absolute; left: 16px; right: 16px; bottom: 14px; height: 24px; display: flex; align-items: center;
+  justify-content: center; gap: 20px; font-size: var(--fs-cap); color: var(--ink-2); white-space: nowrap; overflow: hidden; }
+#legend > span { display: inline-flex; align-items: center; gap: 8px; }
+#legend > span:not(:has(> i, > svg)) { display: inline-block; color: var(--ink-3); }
+#legend > span > i { display: inline-block; width: 16px; height: 3px; border-radius: 2px; flex: none; }
+#legend .tex { font-size: 1.1em; }
+#legend i.sw-line { width: 16px; height: 3px; }
+#legend i.sw-phases { width: 21px; height: 3px;
+  background: linear-gradient(90deg, var(--pa) 0 33.3%, var(--pb) 33.3% 66.6%, var(--pc) 66.6% 100%); }
+/* source current: a line with the drawing's arrowhead (the plain dark line is 'gate on') */
+#legend svg.sw-flow { width: 18px; height: 8px; flex: none; }
+#legend svg.sw-flow path { fill: none; stroke: var(--dc); stroke-width: 3; }
+#legend svg.sw-flow path.hd { fill: var(--dc); stroke: none; }
+#legend i.sw-ring { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--gold); background: none; }
+
+/* ================================================================ details drawer */
+#info { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 16px; }
+#info::-webkit-scrollbar { width: 8px; }
+#info::-webkit-scrollbar-thumb { background: #d3d8de; border-radius: 4px; border: 2px solid var(--surface); }
+#info::-webkit-scrollbar-thumb:hover { background: #b5bcc4; }
+#info h4 { margin: 16px 0 4px; font-family: var(--f-disp); font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+#info h4:first-child { margin-top: 0; }   /* the panel padding sets the top, so every column's first heading is level */
+#info table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+#info td, #info th { height: 22px; padding: 0 4px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#info td:first-child, #info th:first-child { padding-left: 0; }
+#info td:last-child, #info th:last-child { padding-right: 0; }
+#info th { font-weight: 400; color: var(--ink-3); text-align: left; font-size: var(--fs-cap); height: 22px; }
+#info th:first-letter { text-transform: uppercase; }
+#info .r { text-align: right; }
+#info td.wrap { white-space: normal; line-height: 18px; padding-top: 2px; padding-bottom: 6px; }
+#info .warn { color: #b00020; font-weight: 600; }
+#info .note { color: var(--ink-3); line-height: 18px; }
+#info .run { color: var(--ink); line-height: 20px; padding: 2px 0; white-space: normal; }
+/* key-value tables: label left in the secondary ink, value right in the main ink; no row rules */
+#info table.kv td { color: var(--ink-2); }
+#info table.kv td.r, #info table.kv td.mono { color: var(--ink); }
+#info table.kv td.mono { font-variant-numeric: tabular-nums lining-nums; }
+#info table.kv td.wrap { padding-top: 2px; padding-bottom: 2px; }   /* same rhythm as the one-line rows */
+#info table.sigs .tex { font-size: 1.08em; }
+
+/* legs: per leg [badge | state | gate cells | current] and the conducting devices below */
+#info table.legs { margin-top: 2px; }
+#info table.legs col.c-leg { width: 30px; } #info table.legs col.c-st { width: 100px; }
+#info table.legs tr:first-child th { border-bottom: 1px solid var(--rule); }
+#info table.legs td { height: 28px; color: var(--ink); }
+#info table.legs td.devs { height: auto; padding-top: 0; padding-bottom: 6px; color: var(--ink); }
+#info table.legs tr:nth-child(2n+2):not(:nth-child(2)) td { border-top: 1px solid var(--rule); }
+#info .badge, #infosum .badge { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 10px;
+  border: 1.5px solid currentColor; font-family: var(--f-math); font-style: italic; font-size: 14px; line-height: 1; padding-bottom: 1px; }
+#infosum .badge { width: 18px; height: 18px; font-size: 13px; }
+#info .st { display: inline-flex; align-items: center; max-width: 100%; height: 20px; padding: 0 8px; border-radius: var(--r-s);
+  background: var(--inset); color: var(--ink); font-size: var(--fs-cap); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#info .st.st1 { justify-content: center; width: 24px; padding: 0; font-size: var(--fs-body); font-weight: 600; }
+.bits { display: inline-flex; align-items: center; gap: 3px; height: 20px; }
+.bit { width: 12px; height: 16px; border-radius: 2px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+.bit.on { background: var(--bit-on); color: #fff; }
+.bit.off { box-shadow: inset 0 0 0 1px var(--dev-off); color: var(--ink-3); font-weight: 400; }
+#info .dev { font-family: var(--f-math); font-style: italic; font-size: 1.08em; font-size-adjust: var(--math-x); color: var(--ink); }
+#info .dev sub { font-style: italic; }
+#info .plus { color: var(--ink-3); }
+#info .via { display: inline-block; margin-left: 6px; padding: 0 6px; height: 18px; line-height: 18px; border-radius: var(--r-s);
+  background: var(--np-tag); color: var(--np-ink); font-size: var(--fs-cap); }
+/* one centre line per leg row: badge, state, gate cells (20 px) and the via tag sit on the line box top */
+#info table.legs .badge, #info .st, .bits, #info .via { vertical-align: top; }
+/* current via the neutral point: a gold bar in the drawer margin, so every badge stays on one vertical */
+#info table.legs td:first-child { overflow: visible; position: relative; }
+#info tr.np td:first-child::before { content: ''; position: absolute; left: -10px; top: 0; bottom: 0; width: 2px; background: var(--gold); }
+#info table.legs td:first-child { padding-left: 0; }
+
+/* decimal-aligned numbers: integer part right-aligned, fraction left-aligned, unit; fixed widths */
+.num { display: inline-flex; align-items: baseline; white-space: nowrap; color: var(--ink); }
+.num .vi { width: 5ch; text-align: right; }
+.num .vf { width: 4ch; text-align: left; }
+.num .vu { width: 2.4ch; text-align: left; padding-left: .5ch; color: var(--ink-3); font-size: var(--fs-cap); }
+
+#split { cursor: row-resize; display: flex; align-items: center; justify-content: center; }
+#split .grip { width: 40px; height: 4px; border-radius: 2px; background: var(--ctl); transition: background-color .12s; }
+#split:hover .grip { background: var(--ink-3); }
+
+/* ================================================================ waveform rows */
+#waves { display: flex; flex-direction: column; min-height: 0; min-width: 0; margin-bottom: 8px; }
+#rows { flex: 1; overflow-y: scroll; overflow-x: hidden; scrollbar-gutter: stable; }
+#rows::-webkit-scrollbar { width: 10px; }
+#rows::-webkit-scrollbar-track { background: var(--lab-bg); border-left: 1px solid var(--rule); }
+#rows::-webkit-scrollbar-thumb { background: #d3d8de; border-radius: 5px; border: 2px solid var(--lab-bg); }
+#rows::-webkit-scrollbar-thumb:hover { background: #b5bcc4; }
+.row { display: flex; border-bottom: 1px solid var(--rule); position: relative; }
+.lab { width: var(--labw); flex: none; display: flex; border-right: 1px solid var(--hair); min-width: 0; background: var(--lab-bg); }
+.tools { width: var(--toolw); flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 10px; }
+.tool { position: relative; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; color: var(--ink-3); cursor: pointer; border: none; background: none; padding: 0; opacity: .5;
+  transition: opacity .12s, background-color .12s, color .12s; }
+.tool svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; fill: none; }
+.row:hover .tool, .tool:focus-within, .tool:focus-visible { opacity: 1; }
+.tool:hover { background: var(--press); color: var(--ink); }
+.tool select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 12px; }
+.chips { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; gap: 4px; padding: 8px 4px 8px 0; overflow: hidden; }
+.chips.lanes { display: block; padding: 0; }
+.chips.lanes .chip { position: absolute; left: 0; right: 4px; }
+.chip { display: flex; align-items: center; gap: 8px; height: 20px; padding: 0 4px; border-radius: 4px; cursor: pointer;
+  white-space: nowrap; line-height: 20px; flex: none; transition: background-color .12s; }
+.chip .sw { width: 12px; height: 12px; flex: none; position: relative; }
+.chip .sw::before { content: ''; position: absolute; left: 0; right: 0; top: 5px; height: 2px; border-radius: 1px; background: var(--c); }
+.chip .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--c); font-size: var(--fs-sym); }
+.chip .val { flex: none; }
+.chip .num { font-size: var(--fs-body); }
+.chip:hover { background: var(--surface); box-shadow: inset 0 0 0 1px var(--rule); }
+.chip:hover .sw::before { content: '\00d7'; top: 0; height: 12px; background: none; color: var(--ink-2); font-family: var(--f-ui); font-size: 14px;
+  line-height: 12px; text-align: center; }
+.empty { color: var(--ink-3); line-height: 20px; padding-left: 4px; }
+.yax { width: var(--yaxw); flex: none; position: relative; }
+.yax canvas, .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.plot { flex: 1; position: relative; min-width: 0; cursor: crosshair; background: var(--surface); }
+.rz { position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; cursor: ns-resize; z-index: 2; }
+.rz:hover { background: linear-gradient(transparent 2px, rgba(31, 95, 191, .35) 2px, rgba(31, 95, 191, .35) 4px, transparent 4px); }
+
+#axis, #over { display: flex; flex: none; padding-right: var(--sbw); }
+#axis { height: 32px; border-top: 1px solid var(--hair); }
+#over { height: 28px; border-top: 1px solid var(--rule); cursor: grab; }
+#axis .lab, #over .lab { background: var(--lab-bg); }
+#over .plot { background: var(--ov-bg); cursor: grab; }
+.axlab { align-items: center; justify-content: flex-end; padding-right: 12px; color: var(--ink-3); font-size: var(--fs-cap); }
+#axis .axlab .tex { font-size: var(--fs-sym); color: var(--ink); }
+#axis .axlab .u { font-size: var(--fs-cap); color: var(--ink-3); }
+#axis .plot { cursor: crosshair; }
+
+#help { display: flex; align-items: center; gap: 24px; height: 28px; padding: 0 16px; flex: none; font-size: var(--fs-cap);
+  color: var(--ink-3); white-space: nowrap; overflow: hidden; }
+kbd { display: inline-block; height: 18px; padding: 0 6px; margin-right: 6px; border-radius: 4px; background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--ctl); font-family: var(--f-ui); font-size: var(--fs-cap); line-height: 18px; text-align: center; color: var(--ink-2); }
+
+/* ================================================================ circuit conduction styles
+   Device classes from drawCircuit: cv-off (gate off), cv-on (gate on, not conducting), cv-cond-igbt / cv-cond-diode
+   (conducting; the lit symbol part itself tells IGBT from diode). --leg = colour of the device's leg (set inline).
+   Overlay: cv-path-under (soft underlay), cv-path-np (gold edge via the neutral point), cv-path (core, width ∝ |i|),
+   cv-path-case (paper casing under each core), cv-arrow (arrowheads), cv-np-ring (ring at the neutral point).
+   A  phase-tinted : drawing as drawn; conducting parts and paths in the leg colour.
+   B  ink + accent : monochrome; grey static drawing, conducting parts and paths in ink; gold is the only accent.
+   C  spotlight    : like A, but the static drawing recedes (grey wires and dots, faded panels), so the
+                     conduction is the only saturated thing in the picture (default).
+   */
+#svghost .cv-dev { transition: color .1s; }
+/* a device symbol's own junction dots (diode to C / E, black in the symbol file) follow its strongest device state */
+#svghost .cv-dots :is(ellipse, circle) { fill: currentColor !important; stroke: currentColor !important; }
+#svghost .cv-off { color: var(--dev-off); }
+#svghost .cv-on { color: var(--dev-on); }
+#svghost .cv-cond-igbt, #svghost .cv-cond-diode { color: var(--leg, var(--ink)); }
+#svghost circle.cv-node-np { fill: var(--gold); }
+#svghost .cv-path-under { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: .16; }
+/* |i| below i_eps: the leg's connection, thin and dashed in the leg colour, no arrows */
+#svghost .cv-path-idle { fill: none; stroke-width: .85; stroke-dasharray: 2.2 1.8; stroke-linecap: butt; stroke-linejoin: round; opacity: .8; }
+:root[data-cv-style="B"] #svghost .cv-path-idle { stroke: var(--cond-ink); opacity: .55; }
+#svghost .cv-path-np { fill: none; stroke: var(--gold); stroke-linecap: round; stroke-linejoin: round; }
+#svghost .cv-lane { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+#svghost .cv-net { fill: none; stroke-linecap: round; stroke-linejoin: round; }   /* a shared wire: one net current */
+#svghost .cv-path { fill: none; visibility: hidden; }   /* per-leg record on the table geometry; lanes are painted */
+#svghost .cv-arrow { stroke: none; }
+#svghost .cv-path-case { fill: none; stroke: #ffffff; stroke-linecap: round; stroke-linejoin: round; }
+#svghost .cv-np-ring { fill: none; stroke: var(--gold); }
+/* dc-link capacitors: branch current in gold, the lit symbol, the charge mark (▲ charging, ▼ discharging) */
+#svghost .cv-cap, #svghost .cv-cap-case { fill: none; stroke-linecap: butt; }   /* butt: never into the plate gap */
+#svghost .cv-cap-case { stroke: #ffffff; }
+#svghost .cv-cap-on path { stroke: var(--gold) !important; }
+#svghost .cv-cap-mark { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+/* dc source branch (ink); load parts lit in their leg colour, the line kept out of their bodies by a paper patch */
+#svghost .cv-src, #svghost .cv-src-case { fill: none; stroke-linecap: butt; stroke-linejoin: round; }
+#svghost .cv-src-case { stroke: #ffffff; }
+#svghost .cv-knock { fill: #ffffff; stroke: none; }
+/* net current of the neutral point: gold arrow beside the O jog, labelled i_O in the drawing's math face */
+#svghost .cv-np-net { fill: none; stroke-linecap: butt; }
+#svghost .cv-np-lab { font-family: "Times New Roman", Times, serif; font-style: italic; font-size: 8.35px; fill: var(--np-ink); }
+#svghost .cv-load-on :is(path, circle) { stroke: var(--leg) !important; stroke-width: 1.1px !important; }   /* lit: a little heavier, closer to the line feeding it */
+
+:root[data-cv-style="B"] #svghost .cv-cond-igbt, :root[data-cv-style="B"] #svghost .cv-cond-diode { color: var(--cond-ink); }
+:root[data-cv-style="B"] #svghost .cv-on { color: #8a919a; }
+:root[data-cv-style="B"] #svghost .cv-lane { stroke: var(--cond-ink); }
+:root[data-cv-style="B"] #svghost .cv-arrow { fill: var(--cond-ink); }
+:root[data-cv-style="B"] #svghost .cv-path-under { stroke: var(--cond-ink); opacity: .10; }
+:root[data-cv-style="B"] #svghost .layer-panel { opacity: .35; }
+
+:root[data-cv-style="C"] #svghost .layer-panel { opacity: .5; }
+:root:is([data-cv-style="B"], [data-cv-style="C"]) #svghost .layer-wire path { stroke: #a3a9b1; }
+:root:is([data-cv-style="B"], [data-cv-style="C"]) #svghost .layer-top circle:not(.cv-node-np) { fill: #a3a9b1; }
+:root:is([data-cv-style="B"], [data-cv-style="C"]) #svghost .cv-off { color: #cdd2d8; }
+
+/* Signals and Parameters: one unit column (up to three letters: kHz, mH), so both share one decimal line */
+#info .num .vu { width: 4ch; }   /* all Details tables share one decimal line */
+/* a value that wraps: its label stays on the first line */
+#info table.kv tr:has(td.wrap) td:first-child { vertical-align: top; padding-top: 2px; line-height: 18px; }
+/* drawer cut mid-row: fade the last lines while more lies below (class 'more' set by moreFade in app.js) */
+#info.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent); }
+/* DC link rows in Details: the same charge marks as on the drawing */
+svg.chg { width: 8px; height: 10px; flex: none; fill: none; stroke: var(--np-ink); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+#info svg.chg { vertical-align: -1px; margin-right: 6px; }
+#legend svg.chg + svg.chg { margin-left: -4px; }
+
+/* Export menu (snapshot.js): a plain list under the toolbar button; status line at the bottom */
+#xmenu { position: fixed; z-index: 20; min-width: 300px; padding: 6px 0; background: var(--surface); border: 1px solid var(--ctl);
+  border-radius: var(--r); box-shadow: 0 6px 18px rgba(22, 25, 29, .12); }
+#xmenu .xh { padding: 8px 14px 4px; font-size: var(--fs-cap); color: var(--ink-3); }
+#xmenu button { display: block; width: 100%; padding: 6px 14px; border: none; background: none; text-align: left; cursor: pointer; color: var(--ink); }
+#xmenu button:hover, #xmenu button:focus-visible { background: var(--ctl-hover); outline: none; }
+#xmenu button[disabled] { color: var(--ink-3); cursor: default; }
+#toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 21; max-width: 70vw; padding: 8px 14px;
+  border-radius: var(--r); background: var(--ink); color: #fff; font-size: var(--fs-body); opacity: 0; pointer-events: none;
+  transition: opacity .15s; }
+#toast.on { opacity: 1; }
+#toast.bad { background: #8a1c1c; }
+/* PowerPoint add-in bar (?ppt=edit | insert): the actions of that mode, under the toolbar */
+#pptbar { position: fixed; top: calc(var(--bar-h) + 8px); left: 50%; transform: translateX(-50%); z-index: 19; display: flex;
+  align-items: center; gap: 12px; padding: 6px 8px 6px 14px; background: var(--surface); border: 1px solid var(--ctl);
+  border-radius: var(--r); box-shadow: 0 6px 18px rgba(22, 25, 29, .12); white-space: nowrap; }
+#pptbar[hidden] { display: none; }
+:root.ppt-mode main { padding-top: 52px; }                 /* the bar's own row: nothing under it is covered */
+#svghost svg.cv-snap * { transition: none !important; }  /* snapshot.js reads final colours */
+#pptbar .pt { font-weight: 600; color: #b7472a; }
+#pptmsg { color: var(--ink-2); }
+#pptacts { display: inline-flex; gap: 6px; }
+#pptacts button { height: var(--ctl-h); padding: 0 12px; border: 1px solid var(--ctl); background: var(--surface); border-radius: var(--r);
+  cursor: pointer; color: var(--ink); }
+#pptacts button:hover { background: var(--ctl-hover); }
+#pptacts button.main { background: #b7472a; border-color: #b7472a; color: #fff; }
+#pptacts button.main:hover { background: #9e3b22; }
+
