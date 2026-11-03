@@ -1046,6 +1046,9 @@ function wireUI() {
   });
   addEventListener('resize', redraw);
   new ResizeObserver(() => { if (S.meta) redraw(); }).observe($('#waves'));
+  (function dpr() {             // zoom or another monitor changes the device pixel ratio but not the CSS size: redraw the canvases sharp
+    matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { if (S.meta) redraw(); dpr(); }, { once: true });
+  })();
   attachPlot($('#axplot'));
   const ov = $('#over');
   ov.addEventListener('pointerdown', e => {

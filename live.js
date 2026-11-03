@@ -21,6 +21,7 @@
     slideLayout();
     lighter();
     addPlay();
+    hud();
     for (let k = 0; k < 200 && !(S.meta && S.circ); k++) await new Promise(r => setTimeout(r, 50));
     caption();
     redraw();
@@ -60,6 +61,31 @@
       if (ts - ran < 32) { FLOW.raf = requestAnimationFrame(flowTick); return; }
       ran = ts; tick(ts);
     };
+  }
+  // ---- TEMPORARY diagnostic line in the bar (slide show lag / blur): CSS size and pixel ratio of the frame, screen
+  // frames per second and the longest frame of the last second, JS time per cursor draw, the graphics renderer
+  function hud() {
+    const el = document.createElement('span'); el.id = 'livehud'; $('#bar').appendChild(el);
+    let gpu = '?';
+    try {
+      const g = document.createElement('canvas').getContext('webgl'), x = g && g.getExtension('WEBGL_debug_renderer_info');
+      gpu = !g ? 'no WebGL' : x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER);
+    } catch (e) { gpu = 'err'; }
+    gpu = String(gpu).replace(/^ANGLE \(|\)$/g, '').replace(/Direct3D.*$/, '').slice(0, 40);
+    const dc = drawCursor; let js = 0, jn = 0;
+    drawCursor = function () { const a = performance.now(); dc.apply(this, arguments); js += performance.now() - a; jn++; };
+    let n = 0, t0 = 0, prev = 0, worst = 0;
+    const loop = ts => {
+      if (prev) worst = Math.max(worst, ts - prev);
+      prev = ts; n++;
+      if (!t0) t0 = ts;
+      if (ts - t0 >= 1000) {
+        el.textContent = `${innerWidth}×${innerHeight} @${devicePixelRatio.toFixed(2)} · ${Math.round(n * 1000 / (ts - t0))} fps · worst ${Math.round(worst)} ms · draw ${jn ? (js / jn).toFixed(1) : '-'} ms ×${jn} · ${gpu}`;
+        n = 0; t0 = ts; worst = 0; js = 0; jn = 0;
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
   }
   // the case (method, m_a, φ) in the Details header, so a slide says what it shows
   function caption() {
