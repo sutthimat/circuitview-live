@@ -19,6 +19,7 @@
     try { if (localStorage.getItem('circuitview.details') === null) localStorage.setItem('circuitview.details', 'false'); } catch (e) { /* no storage */ }   // a slide starts with the waveforms, Details folded
     await load('app.js'); await load('snapshot.js'); await load('video.js');
     slideLayout();
+    lighter();
     addPlay();
     for (let k = 0; k < 200 && !(S.meta && S.circ); k++) await new Promise(r => setTimeout(r, 50));
     caption();
@@ -35,6 +36,29 @@
       if (!avail || !rows.length) return;
       const want = rows.map(defaultH), sum = want.reduce((a, b) => a + b, 0);
       rows.forEach((r, j) => { r.h = Math.max(minH(r), Math.floor(want[j] * avail / sum)); r.el.row.style.height = r.h + 'px'; });
+    };
+  }
+  // ---- PowerPoint's web view (full screen in Slide Show above all) is slower than a browser: per cursor move the
+  // app rebuilds the whole drawing (~5-13 ms here, several times that in the slide). Rebuild only when what it shows
+  // changes: a leg state or a current direction, the flow switch, or 250 ms passed (path widths follow |i|); with
+  // Details open every move (its numbers). Arrowheads advance at 30 frames/s instead of the screen rate.
+  function lighter() {
+    const full = drawCircuit;
+    let key = '', at = 0;
+    const sgn = n => { const v = valueAt(n, S.cur); return v > 0 ? '+' : v < 0 ? '-' : '0'; };
+    drawCircuit = function () {
+      const C = S.circ;
+      if (!C || !S.meta) return full();
+      const k = C.legs.map(L => { const s = legState(L, S.cur); return s.key + s.sign; }).join('|') + (FLOW.on ? 'F' : 'S') +
+        [...(C.J.caps || []), ...(C.J.srcs || [])].map(c => sgn(c.i)).join('');
+      const now = performance.now(), open = !$('#infobox').classList.contains('collapsed');
+      if (k === key && !open && now - at < 250) return;
+      key = k; at = now; full();
+    };
+    const tick = flowTick; let ran = 0;
+    flowTick = function (ts) {
+      if (ts - ran < 32) { FLOW.raf = requestAnimationFrame(flowTick); return; }
+      ran = ts; tick(ts);
     };
   }
   // the case (method, m_a, φ) in the Details header, so a slide says what it shows
@@ -90,6 +114,7 @@
     let raf = 0, last = 0;
     const stop = () => { cancelAnimationFrame(raf); raf = 0; p.setAttribute('aria-pressed', 'false'); FLOW.last = 0; flowStart(); };
     const tick = ts => {
+      if (last && ts - last < 32) { raf = requestAnimationFrame(tick); return; }   // 30 frames/s, as the arrowheads
       const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0; last = ts;
       const [a, b] = S.view, secs = typeof videoSeconds === 'function' ? videoSeconds() : 10;
       S.cur += (b - a) * dt / secs; if (S.cur > b) S.cur = a;
