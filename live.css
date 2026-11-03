@@ -29,3 +29,6 @@
 #livefile { display: none; }
 /* TEMPORARY diagnostic line (live.js hud) */
 #livehud { position: fixed; left: 8px; bottom: 2px; z-index: 60; font: 11px/1.2 Consolas, monospace; color: #b00020; background: rgba(255,255,255,.85); padding: 1px 4px; pointer-events: none; }
+/* arrowheads on their own layer above the circuit (live.js flowLayer) */
+#svghost #liveflow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; will-change: transform; overflow: visible; }
+#svghost > svg:first-child { will-change: transform; }

@@ -23,6 +23,7 @@
     addPlay();
     hud();
     for (let k = 0; k < 200 && !(S.meta && S.circ); k++) await new Promise(r => setTimeout(r, 50));
+    flowLayer();
     caption();
     redraw();
   }
@@ -61,6 +62,32 @@
       if (ts - ran < 18) { FLOW.raf = requestAnimationFrame(flowTick); return; }
       ran = ts; tick(ts);
     };
+  }
+  // ---- Slide Show passes the add-in's picture through a slower path: every moved arrowhead used to repaint the whole
+  // circuit drawing. The arrowheads go to their own SVG on top (same viewBox, own compositing layer), so per frame
+  // only the small heads are painted; the circuit is painted again only when drawCircuit rebuilds it. The heads are
+  // kept clear of the symbols (app.js keep zones), so lying above the symbol layer changes nothing visible.
+  function flowLayer() {
+    const C = S.circ, host = $('#svghost'); if (!C || !host) return;
+    const top = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); top.id = 'liveflow';
+    host.appendChild(top);
+    let items = null;
+    const move = () => {
+      top.setAttribute('viewBox', C.svg.getAttribute('viewBox')); top.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      if (FLOW.items === items) return;                           // lighter() kept the drawing: the heads stay where they are
+      items = FLOW.items;
+      const g = C.ov.querySelector(':scope > .cv-flow-layer');
+      if (g) top.replaceChildren(g); else top.replaceChildren();
+    };
+    const draw = drawCircuit;
+    drawCircuit = function () { const r = draw.apply(this, arguments); move(); return r; };
+    const group = circuitGroup;
+    circuitGroup = function (x, y, w, h, moving) {                // a video frame keeps the heads: put them back for the copy
+      const g = moving && top.firstElementChild;
+      if (g) C.ov.appendChild(g);
+      try { return group.apply(this, arguments); } finally { if (g && g.isConnected && FLOW.items === items) top.appendChild(g); }
+    };
+    move();
   }
   // ---- TEMPORARY diagnostic line in the bar (slide show lag / blur): CSS size and pixel ratio of the frame, screen
   // frames per second and the longest frame of the last second, JS time per cursor draw, the graphics renderer
