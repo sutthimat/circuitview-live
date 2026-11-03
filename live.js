@@ -42,7 +42,7 @@
   // ---- PowerPoint's web view (full screen in Slide Show above all) is slower than a browser: per cursor move the
   // app rebuilds the whole drawing (~5-13 ms here, several times that in the slide). Rebuild only when what it shows
   // changes: a leg state or a current direction, the flow switch, or 250 ms passed (path widths follow |i|); with
-  // Details open every move (its numbers). Arrowheads advance at 30 frames/s instead of the screen rate.
+  // Details open every move (its numbers). Arrowheads advance at most 50 frames/s (a 100 Hz screen: every 2nd frame).
   function lighter() {
     const full = drawCircuit;
     let key = '', at = 0;
@@ -58,7 +58,7 @@
     };
     const tick = flowTick; let ran = 0;
     flowTick = function (ts) {
-      if (ts - ran < 32) { FLOW.raf = requestAnimationFrame(flowTick); return; }
+      if (ts - ran < 18) { FLOW.raf = requestAnimationFrame(flowTick); return; }
       ran = ts; tick(ts);
     };
   }
@@ -140,7 +140,7 @@
     let raf = 0, last = 0;
     const stop = () => { cancelAnimationFrame(raf); raf = 0; p.setAttribute('aria-pressed', 'false'); FLOW.last = 0; flowStart(); };
     const tick = ts => {
-      if (last && ts - last < 32) { raf = requestAnimationFrame(tick); return; }   // 30 frames/s, as the arrowheads
+      if (last && ts - last < 18) { raf = requestAnimationFrame(tick); return; }   // at most 50 frames/s, as the arrowheads
       const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0; last = ts;
       const [a, b] = S.view, secs = typeof videoSeconds === 'function' ? videoSeconds() : 10;
       S.cur += (b - a) * dt / secs; if (S.cur > b) S.cur = a;
