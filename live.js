@@ -3,6 +3,7 @@
 // app's Export menu) is stored in the add-in's document settings, i.e. inside the .pptx. Whoever opens the file with
 // this add-in gets the live view (cursor, zoom, edges, flowing arrows, Play); without it PowerPoint shows the snapshot.
 //   no data yet -> a picker for a .cvlive file;  data -> app.js + snapshot.js start on it (window.CV_EMBED)
+// A .cvlive of kind 'page' carries one self-contained HTML page instead (an interactive course demo): bootPage.
 // Outside Office (a plain browser tab) the picker works too, without saving (for testing the page).
 'use strict';
 (function () {
@@ -14,7 +15,29 @@
   function load(src) {
     return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error(src)); document.body.appendChild(s); });
   }
-  async function boot(emb) {
+  const say = (m, bad) => typeof toast === 'function' ? toast(m, bad) : console.warn(m);   // app.js's toast, absent on a page
+  // A .cvlive is either a CircuitView view (run + circuit, app.js draws it) or an interactive page (kind 'page': one
+  // self-contained HTML document, e.g. a course demo). Both live in the slide's settings the same way.
+  const isPage = d => !!(d && d.format === FMT && d.kind === 'page' && typeof d.html === 'string');
+  const boot = d => isPage(d) ? bootPage(d) : bootView(d);
+  // ---- an interactive page: shown in a sandboxed frame over the whole slide (its scripts run, but it cannot reach the
+  // add-in or the document). <html data-host="slide"> tells the page that it sits in a 16:9 slide frame.
+  function bootPage(d) {
+    window.CV_EMBED = d;
+    $('#livepick').hidden = true;
+    document.documentElement.classList.add('cv-page');
+    const f = document.createElement('iframe'); f.id = 'livepage'; f.title = d.title || 'interactive page';
+    f.setAttribute('sandbox', 'allow-scripts allow-pointer-lock');
+    const mark = '<script>document.documentElement.setAttribute("data-host","slide")<\/script>';
+    f.srcdoc = /<head[^>]*>/i.test(d.html) ? d.html.replace(/<head[^>]*>/i, m => m + mark) : mark + d.html;
+    document.body.appendChild(f);
+    const bar = document.createElement('div'); bar.id = 'livepagebar';
+    if (WIN) bar.appendChild(fullButton());
+    else { const w = windowButton(); if (w) bar.appendChild(w); bar.appendChild(replaceButton()); }
+    document.body.appendChild(bar);
+    return Promise.resolve();
+  }
+  async function bootView(emb) {
     window.CV_EMBED = emb;
     $('#livepick').hidden = true;
     try { if (localStorage.getItem('circuitview.details') === null) localStorage.setItem('circuitview.details', 'false'); } catch (e) { /* no storage */ }   // a slide starts with the waveforms, Details folded
@@ -122,7 +145,7 @@
     lab.innerHTML = esc(t).replace(/\b([A-Za-z])_([A-Za-z0-9]{1,3})\b/g, '<span class="tex"><i>$1</i><sub>$2</sub></span>');
     lab.id = 'livecap'; $('#infohead').title = 'show or hide the details';
   }
-  function valid(d) { return d && d.format === FMT && d.json && d.text && d.arr; }
+  function valid(d) { return isPage(d) || !!(d && d.format === FMT && d.json && d.text && d.arr); }
 
   // ---- picker: a .cvlive file (drop or choose)
   function picker(msg) {
@@ -154,7 +177,7 @@
         const d = JSON.parse(await f.text()); if (!valid(d)) throw new Error('not a CircuitView Live file (.cvlive)');
         if (settings) { settings.set(KEY, d); await new Promise(ok => settings.saveAsync(ok)); }
         location.reload();                                        // app.js reads CV_EMBED once: start again on the new data
-      } catch (err) { toast(String(err.message || err), true); }
+      } catch (err) { say(String(err.message || err), true); }
     };
     return b;
   }
@@ -173,7 +196,7 @@
       try { localStorage.setItem(WKEY, txt); } catch (e) { /* too large or no storage: messageChild below */ }
       const url = location.href.split(/[?#]/)[0] + '?window=1';
       Office.context.ui.displayDialogAsync(url, { width: 90, height: 90, displayInIframe: false }, r => {
-        if (r.status !== 'succeeded') return toast('the window could not open: ' + (r.error && r.error.message || r.status), true);
+        if (r.status !== 'succeeded') return say('the window could not open: ' + (r.error && r.error.message || r.status), true);
         const dlg = r.value;
         dlg.addEventHandler(Office.EventType.DialogMessageReceived, a => {
           if (a.message !== 'ready') return;
@@ -188,7 +211,7 @@
   function fullButton() {
     const b = document.createElement('button'); b.id = 'livefull'; b.title = 'full screen (Esc to leave)';
     b.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 4.5v-3h3M10.5 4.5v-3h-3M1.5 7.5v3h3M10.5 7.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>Full screen';
-    b.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(e => toast(String(e.message || e), true));
+    b.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(e => say(String(e.message || e), true));
     return b;
   }
   function windowStart() {

@@ -32,3 +32,12 @@
 /* arrowheads on their own layer above the circuit (live.js flowLayer) */
 #svghost #liveflow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; will-change: transform; overflow: visible; }
 #svghost > svg:first-child { will-change: transform; }
+/* an interactive page (.cvlive kind 'page', live.js bootPage): the page fills the slide; Window / Replace float at the
+   top right and show only while the pointer is over them */
+:root.cv-page, .cv-page body { background: #fff; overflow: hidden; }
+#livepage { position: fixed; inset: 0; z-index: 40; width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+#livepagebar { position: fixed; top: 4px; right: 4px; z-index: 45; display: flex; gap: 6px; opacity: 0; transition: opacity .15s; }
+#livepagebar:hover, #livepagebar:focus-within { opacity: 1; }
+#livepagebar button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; font: 12px/1 var(--f-ui, system-ui);
+  border: 1px solid var(--ctl, #b9c0c8); border-radius: var(--r, 6px); background: var(--surface, #fff); color: var(--ink, #15191d); cursor: pointer; }
+#livepagebar svg { width: 12px; height: 12px; }
