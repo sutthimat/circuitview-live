@@ -12,12 +12,17 @@ const SNAP = { W: 1600, H: 900, PAD: 24, HEAD: 40, LEG: 30, AXIS: 30, LAB: 170, 
 
 function cvState() {
   return { v: 1, run: S.run, t: S.cur, view: S.view.slice(), style: CV_STYLE,
+    load: S.circ && S.circ.J.load ? S.circ.J.load.style : null,
     rows: S.rows.map(r => ({ sigs: r.sigs.slice(), h: r.h || null, y: r.y || null })) };
 }
 async function applyState(st) {
   if (!st || !st.run) throw new Error('no CircuitView state');
   S.rows = (st.rows || []).map(r => ({ sigs: r.sigs.slice(), h: r.h || undefined, y: r.y || undefined }));
-  if (st.run !== S.run) { $('#run').value = st.run; await openRun(st.run); } else buildRows();
+  const cur = S.circ && S.circ.J.load ? S.circ.J.load.style : null;
+  const load = st.load || (S.circ && S.circ.J.load ? S.circ.J.load.default : null);   // an older state: the default drawing
+  S.loadStyle = load;                                             // the state's load symbol (not stored; the next choice clears it)
+  if (st.run !== S.run) { $('#run').value = st.run; if (load && load !== cur) S.circName = null; await openRun(st.run); }
+  else { if (load && cur && load !== cur) { await openCircuit(S.circName); setLayout(); } buildRows(); }
   S.view = st.view.slice(); S.cur = st.t; redraw();
 }
 
@@ -55,7 +60,8 @@ function titleSVG(s, size) {
   return out;
 }
 // {x} inside a text = math italic (legend items)
-const mixSVG = (t, size) => sx(t).replace(/\{([^}]*)\}/g, (m, x) => `<tspan font-family="${SNAP.MATH}" font-style="italic" font-size="${r2(size * 1.12)}">${x}</tspan>`);
+const mixSVG = (t, size) => sx(t).replace(/\{([^}_]*)(?:_([^}]*))?\}/g, (m, x, s) => `<tspan font-family="${SNAP.MATH}" font-style="italic" font-size="${r2(size * 1.12)}">${x}</tspan>` +
+  (s ? `<tspan font-family="${SNAP.MATH}" font-style="italic" font-size="${r2(size * 0.8)}" dy="${r2(size * 0.25)}">${s}</tspan><tspan dy="${r2(-size * 0.25)}"> </tspan>` : ''));
 
 // ------------------------------------------------------------------ circuit (clone of the live drawing, styles inlined)
 function inlineStyles(src, dst) {
@@ -76,6 +82,7 @@ function inlineStyles(src, dst) {
       dst.setAttribute('font-style', cs.fontStyle); if (cs.fontWeight !== '400') dst.setAttribute('font-weight', cs.fontWeight);
     }
   }
+  if (cs.paintOrder && cs.paintOrder !== 'normal') dst.setAttribute('paint-order', cs.paintOrder);   // halo under the glyphs
   if (+cs.opacity < 1) dst.setAttribute('opacity', r2(cs.opacity));
   dst.removeAttribute('class'); dst.removeAttribute('style');
   for (const a of [...dst.attributes]) if (a.name.startsWith('data-')) dst.removeAttribute(a.name);
@@ -111,6 +118,7 @@ function legendSVG(x, y, w) {
       if (k === 'phases') ['--pa', '--pb', '--pc'].forEach((p, q) => { out += `<line x1="${r2(cx + q * 6)}" y1="${cy}" x2="${r2(cx + q * 6 + 6)}" y2="${cy}" stroke="${tok(p)}" stroke-width="3"/>`; });
       if (k === 'ring') out += `<circle cx="${r2(cx + 9)}" cy="${cy}" r="5" fill="none" stroke="${col}" stroke-width="1.5"/>`;
       if (k === 'arrow') out += `<line x1="${r2(cx)}" y1="${cy}" x2="${r2(cx + 13)}" y2="${cy}" stroke="${col}" stroke-width="3"/><path d="M${r2(cx + 18)},${cy}L${r2(cx + 12)},${cy - 3.5}L${r2(cx + 13.4)},${cy}L${r2(cx + 12)},${cy + 3.5}Z" fill="${col}"/>`;
+      if (k === 'iref') out += `<line x1="${r2(cx + 1)}" y1="${cy}" x2="${r2(cx + 11.5)}" y2="${cy}" stroke="${col}" stroke-width="1.4"/><path d="M${r2(cx + 17.5)},${cy}L${r2(cx + 10.6)},${r2(cy - 3.3)}C${r2(cx + 11.5)},${r2(cy - 1.2)} ${r2(cx + 11.5)},${r2(cy + 1.2)} ${r2(cx + 10.6)},${r2(cy + 3.3)}Z" fill="${col}"/>`;
       if (k === 'chg') out += `<path d="M${r2(cx + 4)},${cy + 5}V${cy - 4}M${r2(cx + 1.4)},${cy - 1.4}L${r2(cx + 4)},${cy - 4}L${r2(cx + 6.6)},${cy - 1.4}M${r2(cx + 13)},${cy - 5}V${cy + 4}M${r2(cx + 10.4)},${cy + 1.4}L${r2(cx + 13)},${cy + 4}L${r2(cx + 15.6)},${cy + 1.4}" fill="none" stroke="${col}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>`;
       const tx = k === 'note' ? cx : cx + sw + 7;
       out += `<text x="${r2(tx)}" y="${cy + 4.5}" font-family="${SNAP.UI}" font-size="${fs}" fill="${tok(k === 'note' ? '--ink-3' : '--ink-2')}">${mixSVG(t, fs)}</text>`;
@@ -236,6 +244,12 @@ function snapshotSVG(opts = {}) {
   let cx, cy, cw, ch, wx, wy, ww, wh;
   if (wide) { cx = PAD; cy = top; cw = W - 2 * PAD; ch = Math.round(avail * 0.5); wx = PAD; wy = cy + ch + 12; ww = cw; wh = H - PAD - wy; }
   else { cx = PAD; cy = top; ch = avail; cw = Math.min(Math.round(W * 0.56), Math.round((ch - SNAP.LEG - 30) * vb.width / vb.height) + 40); wx = cx + cw + 24; wy = top; ww = W - PAD - wx; wh = avail; }
+  // space-vector panel (svm.js) while it is shown: beside the drawing (wide) or above the waveforms (tall); top layer
+  const svm = typeof svmSnapshot === 'function' && svmSnapshot.shown();
+  let sx0, sy0, sw0, sh0;
+  if (svm && wide) { sw0 = ch; cw -= sw0 + 16; sx0 = cx + cw + 16; sy0 = cy; sh0 = ch; }
+  else if (svm) { sh0 = Math.min(Math.round(avail * 0.5), ww); sw0 = ww; sx0 = wx; sy0 = wy; wy += sh0 + 12; wh -= sh0 + 12; }
+  if (T && svm) body += svmSnapshot(sx0, sy0, sw0, sh0);
   if (T) {
     const leg = legendSVG(cx, 0, cw), lh = leg.h + 8;
     const g = circuitGroup(cx, cy, cw, ch - lh, opts.flow);
@@ -315,8 +329,11 @@ async function exportAction(x) {
       const r = await post('/api/ppt/sequence', { items }); return toast(`Slides ${r.slides[0]}–${r.slides[1]} added`);
     }
     if (x === 'ppt-video' || x === 'mp4' || (x === 'ppt-update' && PPT.target && PPT.target.kind === 'video')) {
-      const v = await renderVideo({ onProgress: f => toast(`Filming the view: ${Math.round(100 * f)} %`) });
-      if (x === 'mp4') { download(fileBase() + '.mp4', new Blob([v.mp4], { type: 'video/mp4' })); return toast(`Video saved (${v.seconds} s)`); }
+      const v = await recordDialog(x === 'mp4' ? 'file' : 'ppt');  // format, speed, progress + Stop (video.js)
+      if (!v) return;
+      const cut = v.stopped ? ', stopped early' : '';
+      if (v.gif) { download(fileBase() + '.gif', new Blob([v.gif], { type: 'image/gif' })); return toast(`GIF saved (${v.seconds} s${cut})`); }
+      if (x === 'mp4') { download(fileBase() + '.mp4', new Blob([v.mp4], { type: 'video/mp4' })); return toast(`Video saved (${v.seconds} s${cut})`); }
       const d = { mp4: b64(v.mp4), state: cvState() }; toast('Sending the video to PowerPoint');
       if (x === 'ppt-video') { const r = await post('/api/ppt/video', d); return toast(`Video on slide ${r.slide} (${v.seconds} s)`); }
       const t = PPT.target, r = await post('/api/ppt/update_video', { ...d, slide: t.slide, shape: t.shape, pres: t.pres });

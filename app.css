@@ -16,7 +16,7 @@
   --cond-ink: #15181c; --gold: #b8912a;                    /* conducting in variant B / current via the neutral point */
   --dc: #2c3239;                                           /* dc source current (same ink as the battery symbol) */
   --cursor: #d0021b;
-  --labw: 232px; --toolw: 24px; --yaxw: 52px; --sbw: 10px; --infow: 360px;
+  --labw: 232px; --toolw: 24px; --yaxw: 52px; --sbw: 10px;
 
   /* ---- interface */
   --ground: #e9ebee; --surface: #ffffff; --inset: #f3f4f6; --well: #f5f6f8;
@@ -33,7 +33,8 @@
   --f-canvas: "Segoe UI", sans-serif;                      /* static Segoe UI: tabular digits by default */
   --fs-cap: 11px; --fs-body: 13px; --fs-lead: 15px; --fs-tick: 11px;
   --fs-sym: 15px;                                          /* signal names in the label column */
-  --ctl-h: 28px; --bar-h: 48px;
+  --ctl-h: 28px; --bar-h: 48px; --pane-h: 32px;
+  --on-bg: #eaf0fa; --on-edge: rgba(31, 95, 191, .45); --on-ink: #1a4f9f;   /* a switch that is on */
 
   font-family: var(--f-ui); font-size: var(--fs-body); color: var(--ink);
   -webkit-font-smoothing: antialiased;
@@ -53,6 +54,8 @@ sub { vertical-align: -0.3em; } sup { vertical-align: 0.45em; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 button, select { font: inherit; color: inherit; }
 button:focus-visible, select:focus-visible, .tool:focus-within { outline: 2px solid var(--focus); outline-offset: 1px; position: relative; z-index: 2; }
+#over:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+[hidden] { display: none !important; }                  /* panels and switches hidden by app.js keep no box */
 
 /* ================================================================ header bar */
 #bar { display: flex; align-items: center; gap: 12px; height: var(--bar-h); padding: 0 16px; flex: none;
@@ -69,10 +72,16 @@ button:focus-visible, select:focus-visible, .tool:focus-within { outline: 2px so
   background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2387909a' stroke-width='1.3'/%3E%3C/svg%3E") no-repeat right 12px center; }
 #bar button:hover, #bar select:hover { background-color: var(--ctl-hover); }
 #bar button:active { background-color: var(--press); }
-#bar button svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-#prev, #next, #addrow, #flow, #xport { display: inline-flex; align-items: center; gap: 6px; }
-/* on/off switch button: pressed = on (inset well, ink text) */
-#bar button.tog[aria-pressed="true"] { background-color: var(--press); border-color: var(--ink-3); }
+#bar button:disabled { cursor: default; opacity: .55; }
+#bar button svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+#prev, #next, #flow, #xport, #setbtn, #panels button { display: inline-flex; align-items: center; gap: 6px; }
+/* on/off switch button: pressed = on (a quiet accent tint; off = plain) */
+#bar button.tog[aria-pressed="true"] { background-color: var(--on-bg); border-color: var(--on-edge); color: var(--on-ink); }
+#bar button.tog[aria-pressed="true"]:hover { background-color: #e0e9f7; }
+/* panel switches: a segmented group, each button on = tinted */
+#panels { flex: none; }
+#panels button { padding: 0 10px; }
+#keysbtn { width: var(--ctl-h); padding: 0 !important; font-weight: 600; color: var(--ink-2) !important; }
 
 #prev { padding-left: 8px; } #next { padding-right: 8px; }
 #bar button .tex { font-size: 1.08em; }
@@ -90,49 +99,81 @@ button:focus-visible, select:focus-visible, .tool:focus-within { outline: 2px so
 #tcur { width: 10.4ch; color: var(--cursor); }
 #tedge { width: 7.6ch; }
 #egates { width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); font-size: var(--fs-lead); }
-#addrow svg { margin-left: -2px; }
-
 /* ================================================================ workspace layout */
-/* wide drawings (lay-wide) stack circuit + details over the waveforms; tall drawings (lay-tall) put the circuit in a
-   full-height left column and the details drawer + waveforms on the right (set in setLayout) */
-main { flex: 1; display: grid; min-height: 0; padding: 8px 8px 0; column-gap: 8px;
-  grid-template-columns: minmax(0, 1fr) var(--infow); grid-template-rows: var(--toph, 43vh) 8px minmax(0, 1fr);
-  grid-template-areas: "circ info" "split split" "waves waves"; }
+/* main is a grid written by setLayout (app.js) from the panels shown, one layout for every circuit (lay-tall):
+     circ column --circw, full height | [svm --svmw | info 1fr] (height --infoh) over the waveforms
+   The 8-px gutters between panels are the splitters (.sp). The rules below are the fallback before the first layout. */
+main { flex: 1; display: grid; min-height: 0; padding: 8px;
+  grid-template-columns: var(--circw, 45vw) 8px minmax(0, 1fr); grid-template-rows: var(--infoh, 45vh) 8px minmax(0, 1fr);
+  grid-template-areas: "circ sp-v1 info" "circ sp-v1 sp-h" "circ sp-v1 waves"; }
 #top { display: contents; }
 #circ { grid-area: circ; position: relative; min-width: 0; min-height: 0; }
-#infobox { grid-area: info; display: flex; flex-direction: column; min-height: 0; }
-#split { grid-area: split; }
+#svm { grid-area: svm; }
+#infobox { grid-area: info; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #waves { grid-area: waves; }
-:root.lay-tall main { grid-template-columns: var(--circw, 40vw) 8px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr);
-  grid-template-areas: "circ split info" "circ split waves"; column-gap: 0; row-gap: 8px; }
-:root.lay-tall #circ { margin-bottom: 8px; }
+#sp-v1 { grid-area: sp-v1; } #sp-v2 { grid-area: sp-v2; } #sp-h { grid-area: sp-h; }
 :root.lay-tall #svghost { bottom: 80px; }
 :root.lay-tall #legend { height: 52px; flex-wrap: wrap; align-content: center; row-gap: 4px; white-space: normal; }
-:root.lay-tall #infobox { max-height: max(44vh, 416px); }   /* at least Legs + DC link (Vdc, C1, C2, O) of a 3-leg circuit (1366 x 768) */
-#infohead { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; flex: none; width: 100%;
-  border: none; border-bottom: 1px solid var(--rule); background: var(--surface); font-weight: 600; color: var(--ink);
-  cursor: pointer; text-align: left; }
-#infohead:hover { background: var(--ctl-hover); }
-#infohead svg { width: 12px; height: 12px; fill: none; stroke: var(--ink-3); stroke-width: 1.4; stroke-linecap: round;
-  stroke-linejoin: round; transition: transform .12s; }
-#infobox.collapsed #infohead svg { transform: rotate(-90deg); }
-#infobox.collapsed #infohead { border-bottom: none; }
-#infobox.collapsed #info { display: none; }
-/* wide layout, details collapsed: the card shrinks to its header and the circuit takes the width */
-#infobox.collapsed { align-self: start; }
-:root.lay-wide main:has(#infobox.collapsed) { grid-template-columns: minmax(0, 1fr) auto; }
-#infosum { margin-left: auto; display: inline-flex; gap: 16px; font-weight: 600; color: var(--ink); }
-#infosum > span { display: inline-flex; align-items: center; gap: 6px; }
-:root.lay-tall #info { width: auto; column-width: 300px; column-gap: 32px; column-rule: 1px solid var(--rule); }
-:root.lay-tall #info h4 { break-after: avoid; }
-:root.lay-tall #info table, :root.lay-tall #info .run, :root.lay-tall #info .note { break-inside: avoid; }
-:root.lay-tall #split { cursor: col-resize; }
-:root.lay-tall #split .grip { width: 4px; height: 40px; }
 .card { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r); overflow: hidden; }
 
+/* ---- panel header: title, actions, hide (x); one height for every panel */
+.pane-h { display: flex; align-items: center; gap: 8px; height: var(--pane-h); padding: 0 6px 0 14px; flex: none;
+  border-bottom: 1px solid var(--rule); background: var(--surface); }
+.pane-t { flex: 1; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pane-x, .pane-b { display: inline-flex; align-items: center; justify-content: center; flex: none; height: 24px; border: none;
+  border-radius: var(--r-s); background: none; color: var(--ink-3); cursor: pointer; transition: background-color .12s, color .12s; }
+.pane-x { width: 24px; padding: 0; }
+.pane-b { gap: 6px; padding: 0 8px; color: var(--ink-2); }
+.pane-x svg, .pane-b svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.pane-x:hover, .pane-b:hover { background: var(--press); color: var(--ink); }
+.pane-x:disabled { opacity: .35; cursor: default; background: none; }
+/* the circuit is the page's subject: its header floats over the sheet and shows only on hover / keyboard focus */
+#circ > .pane-h.ovl { position: absolute; left: 0; right: 0; top: 0; z-index: 4; border-bottom: none; background: none;
+  pointer-events: none; opacity: 0; transition: opacity .15s; }
+#circ > .pane-h.ovl .pane-t { color: var(--ink-3); font-weight: 400; font-size: var(--fs-cap); }
+#circ > .pane-h.ovl .pane-x { pointer-events: auto; background: rgba(255, 255, 255, .85); box-shadow: inset 0 0 0 1px var(--rule); }
+#circ:hover > .pane-h.ovl, #circ:focus-within > .pane-h.ovl { opacity: 1; }
+
+/* ---- Details: the header is a disclosure button (collapse to the leg summary) + hide */
+#infobar { padding-left: 0; }
+#infohead { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 10px 0 14px; flex: 1; min-width: 0;
+  border: none; background: none; font-weight: 600; color: var(--ink); cursor: pointer; text-align: left; white-space: nowrap; }
+#infobar:hover #infohead { background: var(--ctl-hover); }
+#infohead svg { width: 12px; height: 12px; flex: none; fill: none; stroke: var(--ink-3); stroke-width: 1.4; stroke-linecap: round;
+  stroke-linejoin: round; transition: transform .12s; }
+#infobox.collapsed #infohead svg { transform: rotate(-90deg); }
+#infobox.collapsed #infobar { border-bottom: none; }
+#infobox.collapsed #info { display: none; }
+#infobox.collapsed { align-self: start; }               /* the card shrinks to its header */
+#infosum { margin-left: auto; display: inline-flex; gap: 16px; font-weight: 600; color: var(--ink); overflow: hidden; }
+#infosum > span { display: inline-flex; align-items: center; gap: 6px; }
+/* a wide drawer sets its sections in columns of 300 px (one column up to 632 px) */
+#info .info-cols { column-width: 300px; column-gap: 32px; column-rule: 1px solid var(--rule); }
+#info h4 { break-after: avoid; }
+#info table, #info .run, #info .note { break-inside: avoid; }
+
+/* ---- splitters: the gutter between two panels; a faint grip, the accent line on hover / focus / drag */
+.sp { position: relative; z-index: 3; display: flex; align-items: center; justify-content: center; touch-action: none; outline: none; }
+.sp[aria-orientation="vertical"] { cursor: col-resize; }
+.sp[aria-orientation="horizontal"] { cursor: row-resize; }
+.sp::after { content: ''; position: absolute; background: transparent; border-radius: 1px; transition: background-color .12s; }
+.sp[aria-orientation="vertical"]::after { top: 4px; bottom: 4px; left: 3px; width: 2px; }
+.sp[aria-orientation="horizontal"]::after { left: 4px; right: 4px; top: 3px; height: 2px; }
+.sp .grip { position: relative; z-index: 1; border-radius: 2px; background: var(--ctl); transition: background-color .12s; }
+.sp[aria-orientation="vertical"] .grip { width: 4px; height: 32px; }
+.sp[aria-orientation="horizontal"] .grip { width: 32px; height: 4px; }
+.sp:hover .grip, .sp.on .grip, .sp:focus-visible .grip { background: var(--pa); }
+.sp:hover::after, .sp.on::after { background: rgba(31, 95, 191, .28); }
+.sp:focus-visible::after { background: var(--focus); }
+.sp.inert { cursor: default; pointer-events: none; }
+.sp.inert .grip { display: none; }
+body.dragging, body.dragging * { user-select: none !important; }
+body.drag-x, body.drag-x * { cursor: col-resize !important; }
+body.drag-y, body.drag-y * { cursor: row-resize !important; }
+
 /* ================================================================ circuit + legend */
-/* the drawing is the page's subject: a plain white sheet, no frame (Details and the waveforms are framed panels) */
-#circ { background: var(--surface); }
+/* the drawing is the page's subject: a white sheet with the same hairline frame as the other panels, no header bar */
+#circ { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r); overflow: hidden; }
 #svghost { position: absolute; inset: 16px 24px 52px 24px; display: flex; align-items: center; justify-content: center;
   color: var(--ink-3); }
 #svghost svg { width: 100%; height: 100%; display: block; }
@@ -149,6 +190,10 @@ main { flex: 1; display: grid; min-height: 0; padding: 8px 8px 0; column-gap: 8p
 #legend svg.sw-flow { width: 18px; height: 8px; flex: none; }
 #legend svg.sw-flow path { fill: none; stroke: var(--dc); stroke-width: 3; }
 #legend svg.sw-flow path.hd { fill: var(--dc); stroke: none; }
+/* i_x reference direction: the drawing's reference arrow (thin shaft, filled head) */
+#legend svg.sw-iref { width: 18px; height: 8px; flex: none; }
+#legend svg.sw-iref path { fill: none; stroke: var(--ink-2); stroke-width: 1.4; }
+#legend svg.sw-iref path.hd { fill: var(--ink-2); stroke: none; }
 #legend i.sw-ring { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--gold); background: none; }
 
 /* ================================================================ details drawer */
@@ -212,12 +257,8 @@ main { flex: 1; display: grid; min-height: 0; padding: 8px 8px 0; column-gap: 8p
 .num .vf { width: 4ch; text-align: left; }
 .num .vu { width: 2.4ch; text-align: left; padding-left: .5ch; color: var(--ink-3); font-size: var(--fs-cap); }
 
-#split { cursor: row-resize; display: flex; align-items: center; justify-content: center; }
-#split .grip { width: 40px; height: 4px; border-radius: 2px; background: var(--ctl); transition: background-color .12s; }
-#split:hover .grip { background: var(--ink-3); }
-
 /* ================================================================ waveform rows */
-#waves { display: flex; flex-direction: column; min-height: 0; min-width: 0; margin-bottom: 8px; }
+#waves { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #rows { flex: 1; overflow-y: scroll; overflow-x: hidden; scrollbar-gutter: stable; }
 #rows::-webkit-scrollbar { width: 10px; }
 #rows::-webkit-scrollbar-track { background: var(--lab-bg); border-left: 1px solid var(--rule); }
@@ -237,7 +278,13 @@ main { flex: 1; display: grid; min-height: 0; padding: 8px 8px 0; column-gap: 8p
 .chips.lanes { display: block; padding: 0; }
 .chips.lanes .chip { position: absolute; left: 0; right: 4px; }
 .chip { display: flex; align-items: center; gap: 8px; height: 20px; padding: 0 4px; border-radius: 4px; cursor: pointer;
-  white-space: nowrap; line-height: 20px; flex: none; transition: background-color .12s; }
+  white-space: nowrap; line-height: 20px; flex: none; transition: background-color .12s;
+  width: 100%; border: none; background: none; font: inherit; color: inherit; text-align: left; }   /* a button */
+.chips.lanes .chip { width: auto; }
+.chip:focus-visible { outline-offset: -1px; }
+/* an emphasised trace: its chip carries a soft tint of the trace colour */
+.chip.hl { background: color-mix(in srgb, var(--c) 9%, var(--surface)); box-shadow: inset 2px 0 0 var(--c); }
+.chip.hl .nm { font-weight: 600; }
 .chip .sw { width: 12px; height: 12px; flex: none; position: relative; }
 .chip .sw::before { content: ''; position: absolute; left: 0; right: 0; top: 5px; height: 2px; border-radius: 1px; background: var(--c); }
 .chip .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--c); font-size: var(--fs-sym); }
@@ -263,10 +310,36 @@ main { flex: 1; display: grid; min-height: 0; padding: 8px 8px 0; column-gap: 8p
 #axis .axlab .u { font-size: var(--fs-cap); color: var(--ink-3); }
 #axis .plot { cursor: crosshair; }
 
-#help { display: flex; align-items: center; gap: 24px; height: 28px; padding: 0 16px; flex: none; font-size: var(--fs-cap);
-  color: var(--ink-3); white-space: nowrap; overflow: hidden; }
-kbd { display: inline-block; height: 18px; padding: 0 6px; margin-right: 6px; border-radius: 4px; background: var(--surface);
+kbd { display: inline-block; height: 18px; padding: 0 6px; border-radius: 4px; background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--ctl); font-family: var(--f-ui); font-size: var(--fs-cap); line-height: 18px; text-align: center; color: var(--ink-2); }
+/* mouse and keyboard reference (toolbar '?'): a popover like the Export menu, two-column list, Reset layout below */
+#keys { position: fixed; z-index: 20; width: 360px; max-width: calc(100vw - 16px); max-height: calc(100vh - var(--bar-h) - 16px); overflow: auto;
+  padding: 6px 0 0; background: var(--surface); border: 1px solid var(--ctl); border-radius: var(--r); box-shadow: 0 6px 18px rgba(22, 25, 29, .12); }
+#keys .kh { padding: 8px 14px 4px; font-size: var(--fs-cap); color: var(--ink-3); }
+#keys dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; padding: 2px 14px 8px; align-items: center; }
+#keys dt { color: var(--ink-2); font-size: var(--fs-cap); white-space: nowrap; }
+#keys dt kbd + kbd { margin-left: 2px; }
+#keys dd { margin: 0; color: var(--ink); }
+#keys .kf { display: flex; justify-content: flex-end; padding: 8px 14px; border-top: 1px solid var(--rule); background: var(--well); }
+#keys .kf button { height: var(--ctl-h); padding: 0 12px; border: 1px solid var(--ctl); border-radius: var(--r); background: var(--surface);
+  color: var(--ink); cursor: pointer; }
+#keys .kf button:hover { background: var(--ctl-hover); }
+/* settings (toolbar gear): the same popover; one row per load symbol with a small drawing of it */
+#setbtn { width: var(--ctl-h); padding: 0 !important; color: var(--ink-2) !important; justify-content: center; }
+#settings { position: fixed; z-index: 20; width: 300px; max-width: calc(100vw - 16px); padding: 6px 0 0; background: var(--surface);
+  border: 1px solid var(--ctl); border-radius: var(--r); box-shadow: 0 6px 18px rgba(22, 25, 29, .12); }
+#settings .kh { padding: 8px 14px 4px; font-size: var(--fs-cap); color: var(--ink-3); }
+#loadopts { display: flex; flex-direction: column; gap: 2px; padding: 2px 8px 8px; }
+#loadopts label { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 8px; border-radius: var(--r); cursor: pointer; color: var(--ink); }
+#loadopts label:hover { background: var(--ctl-hover); }
+#loadopts label.on { background: var(--well); box-shadow: inset 0 0 0 1px var(--ctl); }
+#loadopts label.off { color: var(--ink-3); cursor: default; }
+#loadopts label.off:hover { background: none; }
+#loadopts input { margin: 0; accent-color: var(--on-ink); }
+#loadopts svg { width: 46px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+#loadopts .lnm { flex: 1; }
+#loadopts .dflt { font-size: var(--fs-cap); color: var(--ink-3); }
+#settings .snote { padding: 8px 14px 10px; border-top: 1px solid var(--rule); background: var(--well); font-size: var(--fs-cap); color: var(--ink-2); line-height: 1.45; }
 
 /* ================================================================ circuit conduction styles
    Device classes from drawCircuit: cv-off (gate off), cv-on (gate on, not conducting), cv-cond-igbt / cv-cond-diode
@@ -346,6 +419,11 @@ svg.chg { width: 8px; height: 10px; flex: none; fill: none; stroke: var(--np-ink
   transition: opacity .15s; }
 #toast.on { opacity: 1; }
 #toast.bad { background: #8a1c1c; }
+/* a toast with an action (Undo after removing a signal): it takes clicks while shown */
+#toast.act.on { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding-right: 8px; }
+#toast button { height: 24px; padding: 0 10px; border: 1px solid rgba(255, 255, 255, .35); border-radius: var(--r-s); background: none;
+  color: #fff; font-weight: 600; cursor: pointer; }
+#toast button:hover { background: rgba(255, 255, 255, .12); }
 /* PowerPoint add-in bar (?ppt=edit | insert): the actions of that mode, under the toolbar */
 #pptbar { position: fixed; top: calc(var(--bar-h) + 8px); left: 50%; transform: translateX(-50%); z-index: 19; display: flex;
   align-items: center; gap: 12px; padding: 6px 8px 6px 14px; background: var(--surface); border: 1px solid var(--ctl);
@@ -362,3 +440,105 @@ svg.chg { width: 8px; height: 10px; flex: none; fill: none; stroke: var(--np-ink
 #pptacts button.main { background: #b7472a; border-color: #b7472a; color: #fff; }
 #pptacts button.main:hover { background: #9e3b22; }
 
+
+/* ================================================================ space-vector panel (svm.js), three-level runs only */
+/* a card in the grid of setLayout (wide: "circ svm info" over the waves; tall: "svm info" over the waves, right of the
+   circuit). Its width is a splitter size (--svmw, square by default); the diagram keeps its aspect and is letterboxed
+   (viewBox, xMidYMid meet) in whatever box the panel has, the readout below it */
+#svm { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#svmbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#svm .svm-svg { flex: 1; min-height: 0; width: 100%; display: block; padding: 6px 6px 0; }
+#svm .svm-read { flex: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding: 6px 10px 8px;
+  border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink-2); }
+#svm .svm-read .rd { gap: 5px; }
+#svm .svm-read .k { color: var(--ink-3); }
+#svm .svm-read b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+#svm .svm-read b.st { letter-spacing: .04em; }
+.svm-lat { stroke: rgba(0, 0, 0, .18); stroke-width: .011; fill: none; }
+.svm-spoke { stroke: rgba(0, 0, 0, .5); stroke-width: .016; fill: none; }
+.svm-hex { fill: none; stroke: rgba(0, 0, 0, .55); stroke-width: .021; }
+.svm-tri { fill: none; stroke-width: .046; stroke-linejoin: round; }
+.svm-ma1 { fill: none; stroke: rgba(0, 0, 0, .65); stroke-width: .019; stroke-dasharray: .078 .049; }
+.svm-sector { fill: none; stroke: rgba(0, 0, 0, .8); stroke-width: .028; stroke-linejoin: round; }
+.svm-arc { fill: none; stroke: rgba(0, 0, 0, .6); stroke-width: .019; }
+.svm-ah { fill: rgba(0, 0, 0, .6); }
+.svm-sec { font-family: var(--f-math); fill: var(--ink-2); }
+.svm-sec.on { fill: var(--ink); font-weight: 700; }
+.svm-dot { stroke: rgba(0, 0, 0, .35); stroke-width: .012; }
+.svm-lab { font-family: var(--f-math); fill: var(--ink); }
+.svm-lab.halo { paint-order: stroke; stroke: rgba(255, 255, 255, .75); stroke-width: .05; stroke-linejoin: round; }
+.svm-harp { fill: none; stroke: var(--ink); stroke-linecap: butt; stroke-linejoin: miter; }
+.svm-trail { fill: none; stroke: #B3122E; stroke-opacity: .32; stroke-width: .02; stroke-linejoin: round; }
+.svm-seq { fill: none; stroke: var(--ink); stroke-opacity: .7; stroke-width: .022; stroke-dasharray: .05 .035; stroke-linejoin: round; }
+.svm-now { fill: none; stroke: var(--cursor); stroke-width: .035; }
+.svm-ref { fill: none; stroke: #B3122E; stroke-width: .045; stroke-linecap: butt; }
+.svm-refhead { fill: #B3122E; }
+.svm-reflab { fill: #B3122E; }
+.svm-harp.ref { stroke: #B3122E; }
+
+/* ================================================================ narrow windows, slide frames */
+/* the toolbar fits 1366 px: below 1600 px the panel switches show icons only, below 1500 px Edge / Flow / Export too
+   (their names stay as aria-label and tooltip) */
+@media (max-width: 1799px) {
+  #panels .lbl { display: none; }
+  #panels button { padding: 0 9px; }
+}
+@media (max-width: 1660px) {
+  #bar { gap: 8px; padding: 0 12px; }
+  .brand { padding-right: 10px; margin-right: 2px; }
+  #prev .lbl, #next .lbl, #flow .lbl, #xport .lbl { display: none; }
+  #prev, #next, #flow, #xport { padding: 0 9px !important; }
+  #bar select { min-width: 160px; }
+  .readout { gap: 14px; padding: 0 10px; }
+}
+/* narrow screens: the toolbar keeps every control on one line (icons only, shorter run list) */
+@media (max-width: 1400px) {
+  #play .lbl { display: none; }
+  #bar select#run { min-width: 120px; max-width: 150px; }
+  .readout { gap: 10px; padding: 0 8px; }
+}
+@media (max-width: 1300px) {
+  .brand-name { display: none; }
+  .brand { padding-right: 8px; }
+}
+/* CircuitView Live (a slide frame, office/live): a talk needs no panel switches, panel headers or layout reference;
+   the splitters still work */
+.cv-live #panels, .cv-live #keysbtn, .cv-live #setbtn, .cv-live .pane-x, .cv-live #circ > .pane-h, .cv-live #waves > .pane-h { display: none !important; }
+:root.cv-live main { padding-bottom: 6px; }
+
+/* ================================================================ record dialog (video.js recordDialog): format, speed, Stop */
+#recdlg { position: fixed; z-index: 30; top: 64px; right: 16px; width: 360px; padding: 14px 16px 12px; border-color: var(--ctl);
+  box-shadow: 0 10px 28px rgba(22, 25, 29, .16); }
+#recdlg .rh { font-weight: 600; margin-bottom: 10px; color: var(--ink); }
+#recdlg .rr { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+#recdlg .rk { width: 52px; flex: none; color: var(--ink-3); }
+#recdlg .rn { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+#recdlg .seg { display: inline-flex; border: 1px solid var(--ctl); border-radius: var(--r-s); overflow: hidden; }
+#recdlg .seg button { height: var(--ctl-h); padding: 0 10px; border: none; border-left: 1px solid var(--ctl); background: var(--surface);
+  color: var(--ink-2); cursor: pointer; font: inherit; font-variant-numeric: tabular-nums; }
+#recdlg .seg button:first-child { border-left: none; }
+#recdlg .seg button:hover { background: var(--ctl-hover); }
+#recdlg .seg button[aria-pressed="true"] { background: var(--on-bg); color: var(--on-ink); font-weight: 600; }
+#recdlg .ra { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+#recdlg .ra button { height: var(--ctl-h); padding: 0 14px; border: 1px solid var(--ctl); border-radius: var(--r-s); background: var(--surface);
+  color: var(--ink); cursor: pointer; font: inherit; }
+#recdlg .ra button:hover { background: var(--ctl-hover); }
+#recdlg .ra button.pri { background: var(--pa); border-color: var(--pa); color: #fff; font-weight: 600; }
+#recdlg .ra button.pri:hover { filter: brightness(1.08); }
+#recdlg .ra button:disabled { opacity: .6; cursor: default; }
+#recdlg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+#recdlg .rbar { height: 6px; border-radius: 3px; background: var(--well); box-shadow: inset 0 0 0 1px var(--rule); overflow: hidden; }
+#recdlg .rbar span { display: block; height: 100%; width: 0; background: var(--cursor); transition: width .15s; }
+
+/* ================================================================ Play (video.js): button + speed */
+#bar #playspeed { flex: none; min-width: 0; width: 72px; padding: 0 20px 0 8px; background-position: right 7px center;
+  font-variant-numeric: tabular-nums; }
+#play .i-pause { display: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+#play[aria-pressed="true"] .i-play { display: none; }
+#play[aria-pressed="true"] .i-pause { display: inline; }
+
+/* institution logos (brand.js): a free corner of the circuit sheet, under the hover header */
+#logos { position: absolute; z-index: 2; display: flex; align-items: center; gap: 7px; pointer-events: none; user-select: none; }
+#logos[hidden] { display: none; }
+#logos img { display: block; width: auto; }
+#logos .sep { width: 1px; align-self: stretch; margin: 4px 0; background: var(--hair); }

@@ -1,11 +1,15 @@
 // CircuitView video: the current view as an MP4 film (H.264, 1600 x 900) for slides that must move without any
 // add-in. The cursor sweeps the view from left to right; the circuit shows the state at the cursor with its flowing
 // arrowheads (the same placement as the app, advanced at the app's speed). Loaded after snapshot.js.
-//   renderVideo({seconds, fps, onProgress})  -> {mp4: Uint8Array, seconds, frames}
+//   renderVideo({format, seconds, speed, fps, onProgress, stop})  -> {mp4 | gif: Uint8Array, seconds, frames}
+//   format 'mp4' (default) or 'gif' (960 x 540, ~14 frames/s, one 255-colour palette, only the changed pixels per frame);
+//   speed scales the default length (2 = twice as fast); stop() true ends the film early and keeps what is filmed.
+// recordDialog(kind) asks for format and speed, then shows the progress with a Stop button (Export menu).
 // Frames: the 'base' snapshot layer (title, waveforms) rasterised once, the 'top' layer (drawing, legend, cursor,
 // values) per frame; WebCodecs encodes, mp4Mux() below writes the file (one track, no B-frames, faststart).
 'use strict';
-const VID = { W: 1600, H: 900, FPS: 30, RATE: 6e6, KEY_S: 2, PER_STATE: 1.5, MIN_S: 6, MAX_S: 30 };
+const VID = { W: 1600, H: 900, FPS: 30, RATE: 6e6, KEY_S: 2, PER_STATE: 1.5, MIN_S: 6, MAX_S: 30,
+  GW: 960, GH: 540, GIF_CS: 7, LONGEST: 120 };   // GIF size, GIF frame delay in 1/100 s, longest film in s
 
 // default length: about PER_STATE seconds per switching state of the view
 function videoSeconds() {
@@ -32,20 +36,25 @@ async function videoEncoder(onChunk) {
 }
 
 async function renderVideo(opts = {}) {
-  if (typeof VideoEncoder === 'undefined') throw new Error('this browser cannot encode video (use Edge or Chrome)');
+  const gif = opts.format === 'gif';
+  if (!gif && typeof VideoEncoder === 'undefined') throw new Error('this browser cannot encode video (use Edge or Chrome, or choose GIF)');
   if (!S.circ || !S.meta) throw new Error('nothing to film yet');
-  const fps = opts.fps || VID.FPS, secs = opts.seconds || videoSeconds(), N = Math.round(secs * fps);
+  const fps = gif ? 100 / VID.GIF_CS : (opts.fps || VID.FPS);
+  const secs = Math.min(VID.LONGEST, Math.max(1, opts.seconds || videoSeconds() / (opts.speed || 1)));
+  const N = Math.max(1, Math.round(secs * fps));
   const [a, b] = S.view, t0 = S.cur, flow0 = FLOW.on;
   const cv = new OffscreenCanvas(VID.W, VID.H), g = cv.getContext('2d', { alpha: false });
-  const chunks = []; let desc = null;
-  const { enc, error } = await videoEncoder((ch, meta) => {
+  const chunks = []; let desc = null, enc = null, error = () => null, gw = null, n = 0;
+  if (gif) gw = gifWriter(VID.GW, VID.GH, VID.GIF_CS);
+  else ({ enc, error } = await videoEncoder((ch, meta) => {
     if (meta && meta.decoderConfig && meta.decoderConfig.description) desc = new Uint8Array(meta.decoderConfig.description);
     const d = new Uint8Array(ch.byteLength); ch.copyTo(d); chunks.push({ d, key: ch.type === 'key' });
-  });
+  }));
   try {
     const base = await svgImage(snapshotSVG({ layer: 'base' }));
     FLOW.on = true; FLOW.phase = {};
     for (let k = 0; k < N; k++) {
+      if (k && opts.stop && opts.stop()) break;                   // Stop: keep the frames filmed so far
       S.cur = a + (b - a) * (N > 1 ? k / (N - 1) : 0);
       drawCursor();                                               // also redraws the circuit for the state at the cursor
       if (FLOW.raf) { cancelAnimationFrame(FLOW.raf); FLOW.raf = 0; }   // the film owns the arrowheads
@@ -53,20 +62,203 @@ async function renderVideo(opts = {}) {
       flowPlace();
       g.drawImage(base, 0, 0);
       g.drawImage(await svgImage(snapshotSVG({ layer: 'top', flow: true })), 0, 0);
-      const fr = new VideoFrame(cv, { timestamp: Math.round(k * 1e6 / fps), duration: Math.round(1e6 / fps) });
-      enc.encode(fr, { keyFrame: k % (VID.KEY_S * fps) === 0 }); fr.close();
-      if (error()) throw error();
-      while (enc.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 5));
-      if (opts.onProgress && k % 15 === 0) opts.onProgress(k / N);
+      if (gif) { gw.frame(cv); await new Promise(r => setTimeout(r, 0)); }   // let the page breathe (Stop, progress)
+      else {
+        const fr = new VideoFrame(cv, { timestamp: Math.round(k * 1e6 / fps), duration: Math.round(1e6 / fps) });
+        enc.encode(fr, { keyFrame: k % (VID.KEY_S * fps) === 0 }); fr.close();
+        if (error()) throw error();
+        while (enc.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 5));
+      }
+      n = k + 1;
+      if (opts.onProgress && k % 3 === 0) opts.onProgress(k / N);
     }
-    await enc.flush();
-    if (error()) throw error();
+    if (enc) { await enc.flush(); if (error()) throw error(); }
   } finally {
-    if (enc.state !== 'closed') enc.close();
+    if (enc && enc.state !== 'closed') enc.close();
     FLOW.on = flow0; FLOW.phase = {}; S.cur = t0; drawCursor();
   }
+  const filmed = +(n / fps).toFixed(1);
+  if (gif) return { gif: gw.end(), seconds: filmed, frames: n };
   if (!desc) throw new Error('the encoder gave no H.264 configuration');
-  return { mp4: mp4Mux(chunks, desc, fps), seconds: secs, frames: N };
+  return { mp4: mp4Mux(chunks, desc, fps), seconds: filmed, frames: n };
+}
+
+// ------------------------------------------------------------------ Play: the cursor sweeps the view, loops
+// 1x = the video's length for this view (videoSeconds); #playspeed scales it. The arrowheads keep flowing. A click
+// or drag elsewhere, Space or another run stops it. At most 50 frames/s (as the arrowheads).
+const PLAY = { raf: 0, last: 0, speed: 1 };
+function playStop() {
+  if (!PLAY.raf) return;
+  cancelAnimationFrame(PLAY.raf); PLAY.raf = 0;
+  const p = $('#play'); if (p) { p.setAttribute('aria-pressed', 'false'); p.querySelector('.lbl').textContent = 'Play'; }
+  FLOW.last = 0; flowStart();
+}
+function playTick(ts) {
+  if (PLAY.last && ts - PLAY.last < 18) { PLAY.raf = requestAnimationFrame(playTick); return; }
+  const dt = PLAY.last ? Math.min(0.1, (ts - PLAY.last) / 1000) : 0; PLAY.last = ts;
+  const [a, b] = S.view, secs = videoSeconds() / PLAY.speed;
+  S.cur += (b - a) * dt / secs; if (S.cur > b) S.cur = a;
+  drawCursor();
+  if (FLOW.raf) { cancelAnimationFrame(FLOW.raf); FLOW.raf = 0; }   // Play owns the arrowheads while it runs
+  for (const it of FLOW.items) FLOW.phase[it.id] = ((FLOW.phase[it.id] || 0) + it.v * dt) % FLOW_GAP;
+  flowPlace();
+  PLAY.raf = requestAnimationFrame(playTick);
+}
+function playStart() {
+  if (PLAY.raf || !S.meta) return;
+  if (!FLOW.on) setFlow(true);
+  if (S.cur < S.view[0] || S.cur >= S.view[1]) S.cur = S.view[0];
+  const p = $('#play'); p.setAttribute('aria-pressed', 'true'); p.querySelector('.lbl').textContent = 'Pause';
+  PLAY.last = 0; PLAY.raf = requestAnimationFrame(playTick);
+}
+(function wirePlay() {
+  const p = $('#play'), sel = $('#playspeed'); if (!p) return;
+  try { const v = +localStorage.getItem('circuitview.playspeed'); if ([0.02, 0.05, 0.1, 0.25, 0.5, 1, 2, 4].includes(v)) sel.value = String(v); } catch (e) { /* no storage */ }
+  PLAY.speed = +sel.value || 1;
+  p.onclick = () => PLAY.raf ? playStop() : playStart();
+  sel.onchange = () => { PLAY.speed = +sel.value || 1; sel.blur(); if (!EMB) try { localStorage.setItem('circuitview.playspeed', sel.value); } catch (e) { /* no storage */ } };
+  addEventListener('pointerdown', e => { if (PLAY.raf && !p.contains(e.target) && !sel.contains(e.target)) playStop(); }, true);
+  addEventListener('keydown', e => {
+    if (e.key !== ' ' || e.ctrlKey || e.altKey || e.metaKey || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return;
+    e.preventDefault(); PLAY.raf ? playStop() : playStart();
+  });
+  $('#run').addEventListener('change', playStop);
+})();
+
+// ------------------------------------------------------------------ record dialog: format, speed, progress + Stop
+// kind 'file' (MP4 or GIF) | 'ppt' (MP4 only, sent to PowerPoint). Resolves to the renderVideo result
+// ({..., stopped}) or null when cancelled or failed (the error goes to the toast).
+const SPEEDS = [0.25, 0.5, 1, 2, 4];
+function recordDialog(kind) {
+  return new Promise(resolve => {
+    const d = document.createElement('div'), base = videoSeconds();
+    d.id = 'recdlg'; d.className = 'card'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'record the view');
+    const len = sp => Math.min(VID.LONGEST, Math.max(1, Math.round(base / sp)));
+    d.innerHTML =
+      `<div class="rh">Record the view</div>` +
+      `<div class="rr"><span class="rk">Format</span><span class="seg">` +
+      `<button type="button" data-f="mp4" aria-pressed="true">MP4 video</button>` +
+      (kind === 'file' ? `<button type="button" data-f="gif" aria-pressed="false">Animated GIF</button>` : '') + `</span></div>` +
+      `<div class="rr"><span class="rk">Speed</span><span class="seg">` +
+      SPEEDS.map(v => `<button type="button" data-s="${v}" aria-pressed="${v === 1}">${v}×</button>`).join('') + `</span></div>` +
+      `<div class="rr rn"><span class="rk"></span><span id="reclen"></span></div>` +
+      `<div class="ra"><button type="button" data-a="cancel">Cancel</button><button type="button" data-a="go" class="pri">Record</button></div>`;
+    document.body.appendChild(d);
+    let fmt = 'mp4', sp = 1, stopped = false;
+    const info = () => { d.querySelector('#reclen').textContent = `Length ${len(sp)} s · ` + (fmt === 'gif' ? `${VID.GW} × ${VID.GH} px` : `${VID.W} × ${VID.H} px`); };
+    const pick = (attr, v) => d.querySelectorAll(`[data-${attr}]`).forEach(b => b.setAttribute('aria-pressed', String(b.dataset[attr] === String(v))));
+    const close = r => { removeEventListener('keydown', key, true); d.remove(); resolve(r); };
+    const key = e => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation(); e.preventDefault();
+      if (d.classList.contains('busy')) stopped = true; else close(null);
+    };
+    addEventListener('keydown', key, true);
+    d.onclick = async e => {
+      const t = e.target.closest('button'); if (!t) return;
+      if (t.dataset.f) { fmt = t.dataset.f; pick('f', fmt); info(); }
+      if (t.dataset.s) { sp = +t.dataset.s; pick('s', sp); info(); }
+      if (t.dataset.a === 'cancel') close(null);
+      if (t.dataset.a === 'stop') { stopped = true; t.disabled = true; t.textContent = 'Stopping…'; }
+      if (t.dataset.a !== 'go') return;
+      d.classList.add('busy');
+      d.innerHTML = `<div class="rh">Recording ${fmt === 'gif' ? 'GIF' : 'MP4'} · ${sp}×</div>` +
+        `<div class="rbar"><span></span></div><div class="rr rn"><span class="rp">0 %</span></div>` +
+        `<div class="ra"><button type="button" data-a="stop" class="pri">Stop and save</button></div>`;
+      d.querySelector('[data-a="stop"]').focus();
+      const fill = d.querySelector('.rbar span'), pct = d.querySelector('.rp');
+      try {
+        const v = await renderVideo({ format: fmt, speed: sp, stop: () => stopped,
+          onProgress: f => { fill.style.width = (100 * f).toFixed(1) + '%'; pct.textContent = Math.round(100 * f) + ' %'; } });
+        close({ ...v, stopped });
+      } catch (err) { close(null); toast(String(err.message || err), true); }
+    };
+    info(); d.querySelector('[data-a="go"]').focus();
+  });
+}
+
+// ------------------------------------------------------------------ GIF89a writer: global 256-colour palette, LZW
+// The palette is the 255 most frequent colours of the first frame (5 bits per channel); index 255 is transparent and
+// marks the pixels that did not change since the previous frame, inside the changed rectangle (disposal: keep).
+function gifWriter(W, H, cs) {
+  const cv = new OffscreenCanvas(W, H), g = cv.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingQuality = 'high';
+  const out = [], put = (...b) => out.push(Uint8Array.from(b)), u16 = v => [v & 255, v >> 8], asc = s => [...s].map(c => c.charCodeAt(0));
+  let pal = null, lut = null, prev = null;
+  put(...asc('GIF89a'), ...u16(W), ...u16(H), 0xf7, 0, 0);      // global colour table of 256 entries follows
+  function palette(px) {
+    const cnt = new Uint32Array(32768);
+    for (let i = 0; i < px.length; i += 4) cnt[(px[i] >> 3) << 10 | (px[i + 1] >> 3) << 5 | px[i + 2] >> 3]++;
+    const keys = [...cnt.keys()].filter(k => cnt[k]).sort((p, q) => cnt[q] - cnt[p]).slice(0, 255);
+    pal = keys.map(k => [k >> 10 & 31, k >> 5 & 31, k & 31].map(v => Math.round(v * 255 / 31)));
+    while (pal.length < 256) pal.push([255, 255, 255]);
+    out.push(Uint8Array.from(pal.flat()));
+    put(0x21, 0xff, 11, ...asc('NETSCAPE2.0'), 3, 1, 0, 0, 0);   // loop for ever
+    lut = new Int16Array(32768).fill(-1);
+  }
+  const near = k => {                                            // nearest palette colour (cached per 15-bit colour)
+    if (lut[k] >= 0) return lut[k];
+    const r = (k >> 10 & 31) * 255 / 31, gg = (k >> 5 & 31) * 255 / 31, b = (k & 31) * 255 / 31;
+    let best = 0, bd = Infinity;
+    for (let j = 0; j < 255; j++) { const p = pal[j], e = (p[0] - r) ** 2 + (p[1] - gg) ** 2 + (p[2] - b) ** 2; if (e < bd) { bd = e; best = j; } }
+    return (lut[k] = best);
+  };
+  function frame(src) {
+    g.drawImage(src, 0, 0, W, H);
+    const px = g.getImageData(0, 0, W, H).data;
+    if (!pal) palette(px);
+    const ix = new Uint8Array(W * H);
+    for (let i = 0, j = 0; j < ix.length; i += 4, j++) ix[j] = near((px[i] >> 3) << 10 | (px[i + 1] >> 3) << 5 | px[i + 2] >> 3);
+    let x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1;
+    if (prev) {                                                  // only the rectangle that changed
+      x0 = W; y0 = H; x1 = -1; y1 = -1;
+      for (let y = 0; y < H; y++) for (let x = 0, j = y * W; x < W; x++, j++) if (ix[j] !== prev[j]) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+      if (x1 < 0) x0 = y0 = x1 = y1 = 0;
+    }
+    const w = x1 - x0 + 1, h = y1 - y0 + 1, sub = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const j = (y + y0) * W + x + x0;
+      sub[y * w + x] = prev && ix[j] === prev[j] ? 255 : ix[j];
+    }
+    prev = ix;
+    put(0x21, 0xf9, 4, 0x05, ...u16(cs), 255, 0);                // disposal 1 (keep), transparent index 255, delay cs/100 s
+    put(0x2c, ...u16(x0), ...u16(y0), ...u16(w), ...u16(h), 0);
+    out.push(lzw(sub, 8));
+  }
+  function end() {
+    put(0x3b);
+    const n = out.reduce((s, p) => s + p.length, 0), o = new Uint8Array(n); let i = 0;
+    for (const p of out) { o.set(p, i); i += p.length; }
+    return o;
+  }
+  return { frame, end };
+}
+function lzw(ix, min) {                                          // GIF LZW: codes packed LSB first, 255-byte sub-blocks
+  const clear = 1 << min, eoi = clear + 1, bytes = [min];
+  let size = min + 1, next = eoi + 1, acc = 0, nb = 0, blk = [];
+  const flushBlk = () => { bytes.push(blk.length); for (const v of blk) bytes.push(v); blk = []; };
+  const emit = c => {
+    acc |= c << nb; nb += size;
+    while (nb >= 8) { blk.push(acc & 255); acc >>>= 8; nb -= 8; if (blk.length === 255) flushBlk(); }
+  };
+  let dict = new Map();
+  emit(clear);
+  let cur = ix[0];
+  for (let i = 1; i < ix.length; i++) {
+    const k = ix[i], key = cur << 8 | k, hit = dict.get(key);
+    if (hit !== undefined) { cur = hit; continue; }
+    emit(cur);
+    if (next === 4096) { emit(clear); dict = new Map(); size = min + 1; next = eoi + 1; }
+    else { if (next >= (1 << size)) size++; dict.set(key, next++); }
+    cur = k;
+  }
+  emit(cur); emit(eoi);
+  if (nb > 0) { blk.push(acc & 255); if (blk.length === 255) flushBlk(); }
+  if (blk.length) flushBlk();
+  bytes.push(0);
+  return Uint8Array.from(bytes);
 }
 
 // ------------------------------------------------------------------ MP4 (ISO BMFF) writer: ftyp, moov, mdat

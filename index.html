@@ -22,32 +22,61 @@
     <button id="reset" title="whole record, automatic y ranges, default row heights">Reset</button>
   </span>
   <span class="grp" role="group" aria-label="switching edges">
-    <button id="prev" title="previous switching edge (←)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7.5 2.5 4 6l3.5 3.5"/></svg>Edge</button>
-    <button id="next" title="next switching edge (→)">Edge<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6 4.5 9.5"/></svg></button>
+    <button id="prev" title="previous switching edge (←)" aria-label="previous switching edge"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7.5 2.5 4 6l3.5 3.5"/></svg><span class="lbl">Edge</span></button>
+    <button id="next" title="next switching edge (→)" aria-label="next switching edge"><span class="lbl">Edge</span><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6 4.5 9.5"/></svg></button>
   </span>
-  <button id="flow" class="tog" aria-pressed="true" title="arrowheads flow with the current, speed ∝ |i|; they rest while the cursor moves and stop after one minute without input"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h1.4M4 6h1.4M7 6h3.6M8.4 3.8 10.6 6 8.4 8.2"/></svg>Flow</button>
+  <button id="flow" class="tog" aria-pressed="true" aria-label="flowing arrowheads" title="arrowheads flow with the current, speed ∝ |i|; they rest while the cursor moves and stop after one minute without input"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h1.4M4 6h1.4M7 6h3.6M8.4 3.8 10.6 6 8.4 8.2"/></svg><span class="lbl">Flow</span></button>
+  <span class="grp" role="group" aria-label="play">
+    <button id="play" class="tog" aria-pressed="false" aria-label="play" title="play: the cursor sweeps the view and starts again at its left end (Space)"><svg viewBox="0 0 12 12" aria-hidden="true"><path class="i-play" d="M3.5 2v8l6-4z"/><path class="i-pause" d="M3.5 2.2v7.6M8.5 2.2v7.6"/></svg><span class="lbl">Play</span></button>
+    <select id="playspeed" title="play speed: 1× sweeps the view in about 1.5 s per switching state, as the video" aria-label="play speed"><option value="0.02">0.02×</option><option value="0.05">0.05×</option><option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+  </span>
   <span class="readout" title="cursor time; time since the previous switching edge and the gates that switched there">
     <span class="rd"><span class="k tex"><i>t</i></span><span id="tcur" class="num-t"></span></span>
     <span class="rd"><span class="k tex">Δ<i>t</i></span><span id="tedge" class="num-t"></span></span>
     <span id="egates" class="tex"></span>
   </span>
   <span class="grow"></span>
-  <button id="xport" aria-haspopup="menu" aria-expanded="false" title="PowerPoint, interactive HTML file, SVG picture"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5v6M3.4 4.9 6 7.5l2.6-2.6M1.8 8.5v2h8.4v-2"/></svg>Export</button>
-  <button id="addrow" title="add a waveform row"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8"/></svg>Add row</button>
+  <!-- panel switches (app.js setPanel; keys 1-4); the SVM switch shows only when svm.js finds a three-level run -->
+  <span id="panels" class="grp" role="group" aria-label="panels">
+    <button class="tog" data-panel="circ" aria-pressed="true" title="circuit (1)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h1.6l1.1-2.6 1.5 5.2 1.6-5.2 1.5 5.2 1.1-2.6H11"/></svg><span class="lbl">Circuit</span></button>
+    <button id="svmbtn" class="tog" data-panel="svm" aria-pressed="false" hidden title="space-vector diagram (2): Vref = volt-second average of the leg states over the sampling period at the cursor"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 1.7h5L11 6l-2.5 4.3h-5L1 6z"/><path d="M6 6l2.4-2.6"/></svg><span class="lbl">SVM</span></button>
+    <button class="tog" data-panel="info" aria-pressed="true" title="details (3)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 3h8M2 6h8M2 9h5"/></svg><span class="lbl">Details</span></button>
+    <button class="tog" data-panel="waves" aria-pressed="true" title="waveforms (4)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6c1.4-4.6 3.6-4.6 5 0s3.6 4.6 5 0"/></svg><span class="lbl">Waves</span></button>
+  </span>
+  <button id="xport" aria-haspopup="menu" aria-expanded="false" aria-label="Export" title="PowerPoint, interactive HTML file, SVG picture"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5v6M3.4 4.9 6 7.5l2.6-2.6M1.8 8.5v2h8.4v-2"/></svg><span class="lbl">Export</span></button>
+  <button id="setbtn" aria-haspopup="dialog" aria-expanded="false" aria-label="settings" title="settings: load symbol"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5.2 1h1.6l.3 1.4 1 .55 1.3-.55 1.15 1.15-.55 1.3.55 1 1.4.3v1.6l-1.4.3-.55 1 .55 1.3-1.15 1.15-1.3-.55-1 .55-.3 1.4H5.2l-.3-1.4-1-.55-1.3.55-1.15-1.15.55-1.3-.55-1L.1 6.8V5.2l1.4-.3.55-1-.55-1.3 1.15-1.15 1.3.55 1-.55z"/><path d="M7.6 6a1.6 1.6 0 1 1-3.2 0 1.6 1.6 0 1 1 3.2 0"/></svg></button>
+  <button id="keysbtn" aria-haspopup="dialog" aria-expanded="false" aria-label="keys and layout" title="mouse and keyboard, panels, reset layout (?)">?</button>
 </header>
 <main>
   <section id="top">
-    <div id="circ"><div id="svghost"></div><div id="legend"></div></div>
-    <aside id="infobox" class="card">
-      <button id="infohead" type="button" aria-expanded="true" title="show or hide the details"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg><span>Details</span><span id="infosum"></span></button>
+    <div id="circ" class="pane" aria-label="circuit">
+      <div class="pane-h ovl"><span class="pane-t">Circuit</span><button class="pane-x" data-hide="circ" title="hide the circuit (1)" aria-label="hide the circuit"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg></button></div>
+      <div id="svghost"></div><div id="legend"></div>
+    </div>
+    <aside id="svm" class="card pane" hidden aria-label="space-vector diagram">
+      <div class="pane-h"><span class="pane-t">Space vectors</span><button class="pane-x" data-hide="svm" title="hide the space-vector diagram (2)" aria-label="hide the space-vector diagram"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg></button></div>
+      <div id="svmbody"></div>
+    </aside>
+    <aside id="infobox" class="card pane">
+      <div id="infobar" class="pane-h">
+        <button id="infohead" type="button" aria-expanded="true" title="show or hide the details"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg><span>Details</span><span id="infosum"></span></button>
+        <button class="pane-x" data-hide="info" title="hide the details (3)" aria-label="hide the details"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+      </div>
       <div id="info"></div>
     </aside>
   </section>
-  <div id="split" title="drag to resize"><span class="grip"></span></div>
-  <section id="waves" class="card">
+  <!-- panel edges: placed into the grid by setLayout (app.js), dragged or moved with the arrow keys -->
+  <div id="sp-v1" class="sp" role="separator" tabindex="0" hidden><span class="grip"></span></div>
+  <div id="sp-v2" class="sp" role="separator" tabindex="0" hidden><span class="grip"></span></div>
+  <div id="sp-h" class="sp" role="separator" tabindex="0" hidden><span class="grip"></span></div>
+  <section id="waves" class="card pane" aria-label="waveforms">
+    <div class="pane-h"><span class="pane-t">Waveforms</span><span class="grow"></span>
+      <button id="addrow" class="pane-b" title="add a waveform row"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8"/></svg>Add row</button>
+      <button class="pane-x" data-hide="waves" title="hide the waveforms (4)" aria-label="hide the waveforms"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+    </div>
     <div id="rows"></div>
     <div id="axis"><div class="lab axlab" id="axlab"></div><div class="plot" id="axplot"><canvas id="axiscv"></canvas></div></div>
-    <div id="over" title="whole record: drag to move the view"><div class="lab axlab">Record</div><div class="plot"><canvas id="overcv"></canvas></div></div>
+    <div id="over" tabindex="0" aria-label="whole record: drag, or use the arrow keys, to move the view" title="whole record: drag to move the view (focused: ← → move it)"><div class="lab axlab">Record</div><div class="plot"><canvas id="overcv"></canvas></div></div>
   </section>
 </main>
 <div id="xmenu" role="menu" hidden>
@@ -63,16 +92,39 @@
   <button role="menuitem" data-x="html">Interactive HTML file (opens without CircuitView)</button>
   <button role="menuitem" data-x="svg">Picture as SVG</button>
   <button role="menuitem" data-x="cvlive">Live slide file (.cvlive) for the CircuitView Live add-in</button>
-  <button role="menuitem" data-x="mp4">Video file (.mp4)</button>
+  <button role="menuitem" data-x="mp4">Video or GIF file (choose speed; Stop keeps what is filmed)</button>
 </div>
 <div id="pptbar" hidden><span class="pt">PowerPoint</span><span id="pptmsg"></span><span id="pptacts"></span></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<footer id="help">
-  <span><kbd>Wheel</kbd>zoom</span><span><kbd>Drag</kbd>cursor</span><span><kbd>Shift + drag</kbd>pan</span>
-  <span><kbd>Ctrl + wheel</kbd>y zoom</span><span><kbd>Double-click</kbd>auto-fit row</span>
-  <span><kbd>← →</kbd>switching edges</span><span><kbd>Shift + ← →</kbd>1 µs steps</span>
-  <span>Drag a row's lower edge to resize it</span>
-</footer>
+<!-- settings (toolbar gear): how the circuit is drawn; app.js syncSettings -->
+<div id="settings" role="dialog" aria-label="settings" hidden>
+  <div class="kh">Load symbol</div>
+  <div id="loadopts" role="radiogroup" aria-label="load symbol"></div>
+  <div class="snote">Changes the drawing only: the simulation and its waveforms stay as they are. Exports use the symbol chosen here.</div>
+</div>
+<!-- mouse and keyboard reference + panels (toolbar '?', key ?) -->
+<div id="keys" role="dialog" aria-label="mouse and keyboard" hidden>
+  <div class="kh">Waveforms</div>
+  <dl>
+    <dt><kbd>Wheel</kbd></dt><dd>zoom in time</dd>
+    <dt><kbd>Drag</kbd></dt><dd>move the cursor</dd>
+    <dt><kbd>Shift + drag</kbd></dt><dd>pan</dd>
+    <dt><kbd>Ctrl + wheel</kbd></dt><dd>zoom the row in y</dd>
+    <dt><kbd>Double-click</kbd></dt><dd>auto-fit the row</dd>
+    <dt><kbd>← →</kbd></dt><dd>previous / next switching edge</dd>
+    <dt><kbd>Shift + ← →</kbd></dt><dd>cursor in 1 µs steps</dd>
+    <dt>Row lower edge</dt><dd>drag: row height</dd>
+    <dt>Signal name</dt><dd>click: emphasise; × removes it</dd>
+  </dl>
+  <div class="kh">Panels</div>
+  <dl>
+    <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></dt><dd>circuit, space vectors, details, waveforms</dd>
+    <dt>Panel edge</dt><dd>drag, or focus it and use the arrow keys</dd>
+    <dt>Double-click edge</dt><dd>default size</dd>
+    <dt><kbd>0</kbd></dt><dd>all panels, default sizes</dd>
+  </dl>
+  <div class="kf"><button id="relayout" type="button">Reset layout</button></div>
+</div>
 <div id="livepick" hidden>
   <span class="pt">CircuitView Live</span>
   <span>Choose the view for this slide: a <b>.cvlive</b> file, either a CircuitView view (Export &gt; Live slide file)

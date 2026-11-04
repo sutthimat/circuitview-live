@@ -62,7 +62,7 @@
     window.CV_EMBED = emb;
     $('#livepick').hidden = true;
     try { if (localStorage.getItem('circuitview.details') === null) localStorage.setItem('circuitview.details', 'false'); } catch (e) { /* no storage */ }   // a slide starts with the waveforms, Details folded
-    await load('app.js'); await load('snapshot.js'); await load('video.js');
+    for (const f of ['app.js', 'snapshot.js', 'video.js', 'svm.js', 'brand.js']) await load(f);   // in order (build.py APP_JS)
     slideLayout();
     lighter();
     addPlay();
@@ -250,6 +250,11 @@
   // ---- Play: the cursor sweeps the view (about 1.5 s per switching state, as the video), arrowheads keep flowing
   function addPlay() {
     const bar = $('#bar'); if (!bar) return;
+    if ($('#play')) {                                                                       // the app's own Play (video.js): only Window / Replace here
+      if (WIN) bar.insertBefore(fullButton(), $('#xport'));
+      else { const w = windowButton(); if (w) bar.insertBefore(w, $('#xport')); bar.insertBefore(replaceButton(), $('#xport')); }
+      return;
+    }
     const p = document.createElement('button'); p.id = 'liveplay'; p.className = 'tog'; p.setAttribute('aria-pressed', 'false');
     p.title = 'sweep the cursor across the view'; p.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 2v8l6-4z"/></svg>Play';
     bar.insertBefore(p, bar.firstChild);                                                     // Play leads; Window or Replace beside Export

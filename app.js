@@ -26,13 +26,15 @@ function legendItems(J) {
     ...(J.np_node ? [['ring', '--gold', np ? 'through {' + np + '}' : 'through the neutral point']] : []),
     ...((J.srcs || []).length ? [['arrow', '--dc', 'dc current']] : []),
     ...((J.caps || []).length ? [['line', '--gold', J.np_node && np ? 'current at {' + np + '}' : 'capacitor current'], ['chg', '--np-ink', 'charging / discharging']] : []),
+    ['iref', '--ink-2', 'reference direction ({i_x} > 0)'],          // the i_x arrows beside the output wires
     ['note', '', 'width ∝ |{i}|']];
 }
 function legendHTML(J) {
   const sw = { line: c => `<i class="sw-line" style="background:var(${c})"></i>`, phases: () => '<i class="sw-phases"></i>', ring: () => '<i class="sw-ring"></i>',
     arrow: () => '<svg class="sw-flow" viewBox="0 0 18 8" aria-hidden="true"><path d="M0 4h13"/><path class="hd" d="M17.5 4 12 .8 13.4 4 12 7.2Z"/></svg>',
-    chg: () => CHG_SVG('up') + CHG_SVG('down'), note: () => '' };
-  const txt = t => esc(t).replace(/\{([^}]*)\}/g, '<span class="tex"><i>$1</i></span>');
+    chg: () => CHG_SVG('up') + CHG_SVG('down'), note: () => '',
+    iref: () => '<svg class="sw-iref" viewBox="0 0 18 8" aria-hidden="true"><path d="M1 4h10.5"/><path class="hd" d="M17.5 4 10.6.7c.9 2.1.9 4.5 0 6.6Z"/></svg>' };
+  const txt = t => esc(t).replace(/\{([^}_]*)(?:_([^}]*))?\}/g, (m, b, s) => `<span class="tex"><i>${b}</i>${s ? `<sub>${s}</sub>` : ''}</span>`);
   return legendItems(J).map(([k, c, t]) => `<span>${sw[k](c)}${txt(t)}</span>`).join('');
 }
 
@@ -106,6 +108,7 @@ async function openRunNow(id, seq) {
   if (S.circ && !S.meta.imax) for (const L of S.circ.legs) { const d = S.sig[L.current] && S.sig[L.current].data; if (d) for (const x of d.v) S.imax = Math.max(S.imax, Math.abs(x)); }
   if (!(S.view[0] >= S.t0 && S.view[1] <= S.t1 && S.view[1] > S.view[0])) S.view = [S.t0, S.t1];
   if (!(S.cur >= S.t0 && S.cur <= S.t1)) S.cur = S.t0 + 0.25 * (S.t1 - S.t0);
+  if ($('#run').options.length) runTitle();
   buildRows(); redraw();
 }
 function defaultRows(sig = S.sig) {
@@ -124,9 +127,15 @@ function defaultRows(sig = S.sig) {
 }
 const subst = (s, x) => s.replace(/\{x\}/g, x);
 async function openCircuit(name) {
+  const seq = S.circSeq = (S.circSeq || 0) + 1;                   // a later call (same circuit too) wins
   S.circName = name; S.circ = null; $('#svghost').innerHTML = '';
   let J; try { J = await getJSON(`circuits/${name}/circuit.json`); } catch (e) { $('#svghost').textContent = 'no circuit "' + name + '"'; return; }
+  // load symbol (Settings): circuit.json is the default drawing and lists the others (legcells.finish, load)
+  const want = S.loadStyle || store.get(LOAD_KEY), alt = J.load && want !== J.load.style && (J.load.styles || []).find(s => s.id === want);
+  if (alt) { try { J = await getJSON(`circuits/${name}/${alt.file}`); } catch (e) { /* not in this file: the default drawing */ } }
+  if (seq !== S.circSeq) return;                                  // overtaken by another call
   const txt = await getText(`circuits/${name}/${J.svg}`);
+  if (seq !== S.circSeq) return;
   $('#svghost').innerHTML = txt;
   const svg = $('#svghost svg'); svg.removeAttribute('width'); svg.removeAttribute('height');
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -152,6 +161,37 @@ async function openCircuit(name) {
   const vb = svg.viewBox.baseVal;
   S.circ = { J, svg, anchors, legs, ov, dotGroups, unit: Math.max(vb.width, vb.height) / 260 };
   $('#legend').innerHTML = legendHTML(J);
+  syncSettings();
+}
+// ---------------------------------------------------------------- settings: load symbol
+// The choice is remembered (circuitview.load) and applies to every circuit that has that drawing; the others keep
+// their default. S.loadStyle: a style asked for by a state (applyState: a slide or an exported file), not stored.
+const LOAD_KEY = 'circuitview.load';
+const LOAD_ICON = {
+  rle: '<path d="M0 11h2l1.2-4.5 2.2 9 2.2-9 2.2 9 1.2-4.5h1.6a2.7 2.7 0 0 1 5.4 0 2.7 2.7 0 0 1 5.4 0 2.7 2.7 0 0 1 5.4 0H33"/><path d="M33 11a5 5 0 1 1 10 0 5 5 0 1 1-10 0M35.2 11c.95-2.4 1.9-2.4 2.8 0s1.85 2.4 2.8 0M43 11h3"/>',
+  rl: '<path d="M1 11h5l1.5-4.5 2.6 9 2.6-9 2.6 9 1.5-4.5h2.2a3 3 0 0 1 6 0 3 3 0 0 1 6 0 3 3 0 0 1 6 0H45"/>',
+  zbox: '<path d="M1 11h10M35 11h10"/><path d="M10.4 8.6v6.4h23.6" stroke-width="2" stroke-linecap="butt"/><rect x="11" y="7" width="24" height="8" fill="var(--surface)"/>',
+  box: '<path d="M12 1v7M23 1v7M34 1v7"/><path d="M4.4 9.8v10.4h36.6" stroke-width="2.2" stroke-linecap="butt"/><rect x="5" y="8" width="36" height="11" fill="var(--surface)"/>',
+};
+function setLoadStyle(id) {
+  S.loadStyle = null; store.set(LOAD_KEY, id);
+  const name = S.circName; if (!name) return;
+  clearTimeout(S.loadTm);                                          // arrow keys walk the radios: load the last one only
+  S.loadTm = setTimeout(() => openCircuit(name).then(() => { setLayout(); redraw(); }), 150);
+}
+function syncSettings() {
+  const box = $('#loadopts'); if (!box) return;
+  const L = S.circ && S.circ.J.load, have = L ? L.styles.map(s => s.id) : [], cur = L ? L.style : null;
+  const focused = box.contains(document.activeElement);
+  box.innerHTML = ['rle', 'rl', 'zbox', 'box'].map(id => {
+    const ok = have.includes(id), on = id === cur, nm = { rle: 'R + L + emf', rl: 'R + L', zbox: 'Box per phase', box: 'One box' }[id];
+    const tag = !ok ? 'not drawn' : L.default === id ? 'default' : '';
+    return `<label class="${on ? 'on' : ''}${ok ? '' : ' off'}"${ok && L.default === id ? ' title="the drawing of the simulated circuit"' : ''}>` +
+      `<input type="radio" name="loadsym" value="${id}"${on ? ' checked' : ''}${ok ? '' : ' disabled'}${tag ? ` aria-describedby="ld-${id}"` : ''}>` +
+      `<svg viewBox="0 0 46 22" aria-hidden="true">${LOAD_ICON[id]}</svg><span class="lnm">${nm}</span>${tag ? `<span class="dflt" id="ld-${id}">${tag}</span>` : ''}</label>`;
+  }).join('');
+  box.querySelectorAll('input').forEach(r => { r.onchange = () => { if (r.checked) setLoadStyle(r.value); }; });
+  if (focused) { const c = box.querySelector('input:checked'); if (c) c.focus({ preventScroll: true }); }
 }
 
 // ---------------------------------------------------------------- circuit state at the cursor
@@ -237,9 +277,13 @@ function pathD(pts, hops, tol = 1e-3) {
 const straight = pts => pts.filter((p, j) => j === 0 || j === pts.length - 1 ||
   Math.abs((p[0] - pts[j - 1][0]) * (pts[j + 1][1] - p[1]) - (p[1] - pts[j - 1][1]) * (pts[j + 1][0] - p[0])) > 1e-9);
 const runsOf = pts => pts.slice(1).map((b, j) => ({ a: pts[j], b, k: 1 }));
-function shareGeometry(drawn, eps) {
+// extra: points that also cut the runs (IGBT route corners, so a device's leads are pieces of their own); inner: piece
+// keys inside a device symbol (circuit.json dev_routes) - a part never mixes inner and outer pieces (D.inner[j]).
+// A diagonal step (an IGBT's collector / emitter diagonal) is one piece of its own.
+function shareGeometry(drawn, eps, extra = [], inner = null) {
   const E = 1e-6, keyP = p => p[0].toFixed(4) + ',' + p[1].toFixed(4), V = new Map();
   for (const D of drawn) for (const p of D.pts) V.set(keyP(p), p);
+  for (const p of extra) V.set(keyP(p), p);
   const verts = [...V.values()];
   const pieces = new Map();                                          // canonical key -> { a, b, users: [{ di, dir }] }
   drawn.forEach((D, di) => {
@@ -247,6 +291,12 @@ function shareGeometry(drawn, eps) {
     for (let k = 0; k < D.pts.length - 1; k++) {
       const a = D.pts[k], b = D.pts[k + 1], horiz = Math.abs(a[1] - b[1]) < E;
       if (Math.abs(a[0] - b[0]) < E && Math.abs(a[1] - b[1]) < E) continue;
+      if (Math.abs(a[0] - b[0]) > E && Math.abs(a[1] - b[1]) > E) {            // diagonal: one piece, never cut
+        const [ka, kb] = [keyP(a), keyP(b)], fwd = ka < kb, key = fwd ? ka + '|' + kb : kb + '|' + ka;
+        if (!pieces.has(key)) pieces.set(key, { a: fwd ? a : b, b: fwd ? b : a, users: [] });
+        pieces.get(key).users.push({ di, dir: fwd ? 1 : -1 });
+        D.pieces.push({ a, b, key }); continue;
+      }
       const ax = horiz ? 0 : 1, lo = Math.min(a[ax], b[ax]), hi = Math.max(a[ax], b[ax]), dir = b[ax] > a[ax] ? 1 : -1;
       const cuts = verts.filter(v => Math.abs(v[1 - ax] - a[1 - ax]) < E && v[ax] > lo + E && v[ax] < hi - E).map(v => v[ax]);
       const along = [a[ax], ...cuts.sort((p, q) => dir * (p - q)), b[ax]];
@@ -265,9 +315,11 @@ function shareGeometry(drawn, eps) {
     let cur = null;
     for (const P of D.pieces) {
       if (shared(P.key)) { cur = null; continue; }
-      if (!cur) { cur = [P.a]; D.parts.push(cur); }
+      const inn = !!(inner && inner.has(P.key));
+      if (!cur || cur.inner !== inn) { cur = [P.a]; cur.inner = inn; D.parts.push(cur); }
       cur.push(P.b);
     }
+    D.inner = D.parts.map(p => p.inner);
     D.parts = D.parts.map(straight);
     D.runs = D.parts.flatMap(runsOf);
   }
@@ -358,9 +410,11 @@ function setFlow(on) {
   const b = $('#flow'); if (b) b.setAttribute('aria-pressed', String(on));
   drawCircuit();
 }
-// centres of the drawing's current-arrow symbols (data-sym="arrow_i"), so overlay arrowheads keep clear of them
+// centres of the drawing's current-arrow symbols (data-sym="arrow_i"), so overlay arrowheads keep clear of them.
+// Since 2026-11-03 the i_x reference arrows sit BESIDE the output wire (legcells.output, lint R9), so the wire
+// belongs to the flowing heads: only an arrow drawn ON a wire (older drawings, no data-beside) is avoided.
 function arrowSymbols(svg) {
-  return [...svg.querySelectorAll('[data-sym="arrow_i"]')].map(el => {
+  return [...svg.querySelectorAll('[data-sym="arrow_i"]:not([data-beside])')].map(el => {
     const b = el.getBBox(), cx = b.x + b.width / 2, cy = b.y + b.height / 2, t = el.transform && el.transform.baseVal.consolidate();
     const m = t && t.matrix; return m ? [m.a * cx + m.c * cy + m.e, m.b * cx + m.d * cy + m.f] : [cx, cy];
   });
@@ -438,7 +492,16 @@ function drawCircuit() {
     g.classList.remove(...RANK);
     if (top.el) { g.classList.add(RANK[top.r]); g.style.setProperty('--leg', top.el.style.getPropertyValue('--leg')); }
   }
-  const chains = shareGeometry(drawn, C.J.i_eps || 0);
+  // inside an IGBT symbol the path follows its drawing (dev_routes) as a slim line, so the lit symbol stays readable
+  if (!C.inner) {
+    const kp = p => p[0].toFixed(4) + ',' + p[1].toFixed(4);
+    C.inner = new Set(); C.routePts = [];
+    for (const r of Object.values(C.J.dev_routes || {})) {
+      C.routePts.push(...r);
+      for (let k = 1; k < r.length; k++) { const a = kp(r[k - 1]), b = kp(r[k]); C.inner.add(a < b ? a + '|' + b : b + '|' + a); }
+    }
+  }
+  const chains = shareGeometry(drawn, C.J.i_eps || 0, C.routePts, C.inner);
   // net lines: colour of the dc net the shared wire lies on (O: gold, P / N: --dc)
   const onNet = ([x, y], segs) => segs.some(([a, b]) => Math.abs((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])) < 1e-3 * Math.hypot(b[0] - a[0], b[1] - a[1]) &&
     x >= Math.min(a[0], b[0]) - 1e-4 && x <= Math.max(a[0], b[0]) + 1e-4 && y >= Math.min(a[1], b[1]) - 1e-4 && y <= Math.max(a[1], b[1]) + 1e-4);
@@ -454,15 +517,21 @@ function drawCircuit() {
     const pts = id.path.map(a => typeof a === 'string' ? C.anchors[subst(a, L.x)] : a).filter(Boolean);
     if (pts.length > 1) mk('path', 'cv-path-idle', { d: pathD(pts, hops), 'data-pts': polyD(pts), stroke: legColor(L), 'data-leg': L.x, 'data-rail': id.rail || '' });
   }
-  for (const D of drawn) { D.d = D.parts.map(p => pathD(p, hops, tol)).join(''); D.dp = polyD(D.pts); }
+  for (const D of drawn) {
+    D.d = D.parts.filter((p, j) => !D.inner[j]).map(p => pathD(p, hops, tol)).join('');
+    D.di = D.parts.filter((p, j) => D.inner[j]).map(p => pathD(p, hops, tol)).join('');
+    D.wi = Math.min(D.w, 1.25 * K); D.dp = polyD(D.pts);
+  }
   for (const N of chains) { N.d = pathD(N.pts, hops, tol); N.dp = polyD(N.pts); }
   for (const D of drawn) mk('path', 'cv-path-under', { d: D.d, 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w + 2.2 * K });
   for (const D of drawn) if (D.st.np) mk('path', 'cv-path-np', { d: D.d, 'data-pts': D.dp, 'stroke-width': D.w + 1.5 * K });
   for (const N of chains) mk('path', 'cv-path-under', { d: N.d, 'data-pts': N.dp, stroke: N.col, 'stroke-width': N.w + 2.2 * K });
   for (const D of drawn) mk('path', 'cv-path-case', { d: D.d, 'data-pts': D.dp, 'stroke-width': D.w + 0.9 * K });
   for (const N of chains) mk('path', 'cv-path-case', { d: N.d, 'data-pts': N.dp, 'stroke-width': N.w + 0.9 * K });
+  for (const D of drawn) if (D.di) mk('path', 'cv-path-case', { d: D.di, 'data-pts': D.dp, 'stroke-width': D.wi + 0.6 * K });
   for (const a of capTop) mk(...a);
   for (const D of drawn) mk('path', 'cv-lane', { d: D.d, 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w });
+  for (const D of drawn) if (D.di) mk('path', 'cv-lane', { d: D.di, 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.wi });
   for (const N of chains) mk('path', 'cv-net', { d: N.d, 'data-pts': N.dp, stroke: N.col, 'stroke-width': N.w, 'data-net': N.net_name, 'data-i': N.net.toFixed(6), 'data-legs': N.users.join('') });
   // load parts: lit in the leg colour while their leg conducts; the line stops at the part's body (a paper patch over
   // the body, wide enough for the widest underlay), so the lit zigzag / coil itself carries the current
@@ -485,7 +554,7 @@ function drawCircuit() {
   // keep-out zones of arrowheads: device and part symbols (boxes), node dots, hop chords
   if (!C.symBoxes) {
     const inv = C.svg.getCTM().inverse();
-    C.symBoxes = [...C.svg.querySelectorAll(':scope > .layer-dev [data-sym]')].map(el => {
+    C.symBoxes = [...C.svg.querySelectorAll(':scope > .layer-dev [data-sym]:not([data-beside])')].map(el => {
       const b = el.getBBox(), m = inv.multiply(el.getCTM()), P = [[b.x, b.y], [b.x + b.width, b.y + b.height]].map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
       return [Math.min(P[0].x, P[1].x), Math.min(P[0].y, P[1].y), Math.max(P[0].x, P[1].x), Math.max(P[0].y, P[1].y)];
     });
@@ -506,7 +575,7 @@ function drawCircuit() {
     // keep factor 0..1: each keep-out zone fades the head over 3K from its edge instead of popping it in one frame;
     // zones: hop chords (±2K), drawn i-arrow symbols (r 6), beside a charge arrow (|dx| 10, |dy| 6.5), symbols, node dots
     const ramp = d => Math.max(0, Math.min(1, d / (3 * K)));
-    const keep = (x, y) => {
+    const keep = (x, y, inside = false) => {
       let f = 1;
       for (const h of hops) {                                         // ramps along x (lanes on the hop row) and y (lanes crossing it)
         const lo = Math.min(h.p0[0], h.p1[0]) - 2 * K, hi = Math.max(h.p0[0], h.p1[0]) + 2 * K;
@@ -514,12 +583,14 @@ function drawCircuit() {
       }
       for (const [sx, sy] of C.arrowSyms) f = Math.min(f, ramp(Math.hypot(x - sx, y - sy) - ARROW_R));
       for (const [mx, my] of marks) f = Math.min(f, ramp(Math.max(Math.abs(x - mx) - 10, Math.abs(y - my) - 6.5)));
-      for (const b of C.symBoxes) f = Math.min(f, ramp(boxD(x, y, b) - SYM_GAP));
+      if (!inside) for (const b of C.symBoxes) f = Math.min(f, ramp(boxD(x, y, b) - SYM_GAP));
       for (const [cx, cy, r] of C.dots) f = Math.min(f, ramp(Math.hypot(x - cx, y - cy) - r - hh));
       return f;
     };
     const g = document.createElementNS(NS, 'g'); g.setAttribute('class', 'cv-flow-layer'); C.ov.appendChild(g);
-    for (const D of drawn) D.parts.forEach((p, j) => FLOW.items.push(flowItem('leg:' + D.L.x + D.st.sign + ':' + j, p, D.col, D.w, null, Math.abs(D.st.i), keep)));
+    // inside an IGBT the heads follow its drawn route (slim, not kept out of the symbol box): the current runs through it
+    const keepIn = (x, y) => keep(x, y, true);
+    for (const D of drawn) D.parts.forEach((p, j) => FLOW.items.push(flowItem('leg:' + D.L.x + D.st.sign + ':' + j, p, D.col, D.inner[j] ? D.wi : D.w, null, Math.abs(D.st.i), D.inner[j] ? keepIn : keep)));
     for (const N of chains) FLOW.items.push(flowItem('net:' + N.users.join('') + ':' + N.dp, N.pts, N.col, N.w, null, Math.abs(N.net), keep));
     for (const [id, p, col, w, ia] of capFlow) FLOW.items.push(flowItem(id, p, col, w, null, ia, keep));
     for (const it of FLOW.items) for (let m = 0; m < it.n; m++) {
@@ -703,7 +774,7 @@ function drawInfo(legs, caps = [], srcs = []) {
   h += `<h4>Parameters</h4><table class="kv params"><colgroup><col><col style="width:148px"></colgroup>` +
     Object.keys(p).map(k => `<tr><td title="${esc(k)}">${mathSpans(texHTML(keyTex(k)))}</td><td class="r wrap">${paramHTML(k, p[k])}</td></tr>`).join('') + '</table>';
   if (S.meta.notes) h += `<p class="note" style="margin:12px 0 0">${mathSpans(texHTML(prettyText(S.meta.notes)))}</p>`;
-  $('#info').innerHTML = h; moreFade();
+  $('#info').innerHTML = '<div class="info-cols">' + h + '</div>'; moreFade();   // columns on the inner block: it grows downwards, #info scrolls
   $('#infosum').innerHTML = legs.map(({ L, st }) => `<span><span class="badge" style="color:${legColor(L)}">${esc(L.x)}</span>${esc(st.known ? st.state : '?')}</span>`).join('');
 }
 // drawer cut mid-row: fade its last lines while more lies below
@@ -739,11 +810,24 @@ function buildRows() {
     rm.onclick = () => { S.rows.splice(ri, 1); buildRows(); redraw(); };
     tools.append(add, rm);
     const chips = document.createElement('div'); chips.className = 'chips' + (isLanes(r) ? ' lanes' : '');
+    // a signal chip: click = emphasise its trace (click again: all equal); the x on its swatch (hover) or Delete removes it
     r.sigs.forEach((n, k) => {
-      const c = document.createElement('div'); c.className = 'chip'; c.style.setProperty('--c', sigColor(n, k));
-      c.title = `${n} : ${fullLab(n)}\nclick to remove`; c.dataset.sig = n;
-      c.innerHTML = `<span class="sw"></span><span class="nm tex">${texHTML(shortLab(n))}</span><span class="val"></span>`;
-      c.onclick = () => { r.sigs.splice(k, 1); buildRows(); redraw(); };
+      const c = document.createElement('button'); c.type = 'button'; c.className = 'chip' + (r.hl === n ? ' hl' : '');
+      c.style.setProperty('--c', sigColor(n, k)); c.dataset.sig = n;
+      c.title = `${n} : ${fullLab(n)}\n${isLanes(r) ? '' : 'click: emphasise the trace; '}× or Delete: remove it`;
+      c.setAttribute('aria-pressed', String(r.hl === n));
+      c.innerHTML = `<span class="sw" title="remove ${esc(n)}"></span><span class="nm tex">${texHTML(shortLab(n))}</span><span class="val"></span>`;
+      const remove = () => {
+        const sigs = r.sigs.slice(), hl = r.hl; r.sigs.splice(k, 1); if (r.hl === n) r.hl = null; buildRows(); redraw();
+        undoToast(`Removed ${n}`, () => { r.sigs = sigs; r.hl = hl; buildRows(); redraw(); });
+      };
+      c.onclick = e => {
+        if (e.target.closest('.sw')) return remove();
+        if (isLanes(r)) return;                                    // gate lanes never overlap: nothing to emphasise
+        r.hl = r.hl === n ? null : n; buildRows(); redraw();
+        const again = r.el && r.el.chips.querySelector(`.chip[data-sig="${CSS.escape(n)}"]`); if (again && e.detail === 0) again.focus();
+      };
+      c.onkeydown = e => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); } };
       chips.appendChild(c);
     });
     if (!r.sigs.length) chips.innerHTML = '<span class="empty">Empty row: add a signal with +</span>';
@@ -862,8 +946,21 @@ function drawRows() {
     }
     if (lo < 0 && hi > 0) { g.strokeStyle = css('--zero'); g.lineWidth = lw; g.beginPath(); g.moveTo(0, px(y(0))); g.lineTo(w, px(y(0))); g.stroke(); }
     if (r.y) { ga.fillStyle = faint; ga.textAlign = 'left'; ga.textBaseline = 'top'; ga.font = `${css('--fs-tick')} ${NUMF_()}`; ga.fillText('held', 4, 4); }
-    r.sigs.forEach((n, k) => drawTrace(g, n, w, y, sigColor(n, k), 1.25));
+    // an emphasised signal: the others recede, it is drawn last and a little heavier
+    const hl = r.hl && r.sigs.includes(r.hl) ? r.hl : null;
+    r.sigs.forEach((n, k) => { if (n === hl) return; g.globalAlpha = hl ? 0.28 : 1; drawTrace(g, n, w, y, sigColor(n, k), 1.25); });
+    g.globalAlpha = 1; if (hl) drawTrace(g, hl, w, y, sigColor(hl, r.sigs.indexOf(hl)), 1.8);
   }
+}
+// a short message with an Undo button over the waveforms (the plain toast of snapshot.js does not take clicks)
+let undoTimer = 0;
+function undoToast(msg, undo) {
+  const el = $('#toast'); if (!el) return;
+  el.textContent = msg + ' '; el.classList.remove('bad');
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Undo';
+  b.onclick = () => { clearTimeout(undoTimer); el.classList.remove('on', 'act'); undo(); };
+  el.appendChild(b); el.classList.add('on', 'act');
+  clearTimeout(undoTimer); undoTimer = setTimeout(() => el.classList.remove('on', 'act'), 6000);
 }
 function drawCursor() {
   const cur = css('--cursor'), lw = 1 / DPR();
@@ -923,50 +1020,221 @@ function syncGutter() {
 }
 function redraw() { if (!S.meta) return; setLayout(); syncGutter(); drawRows(); drawCursor(); }
 
-// ---------------------------------------------------------------- layout by drawing aspect
-// aspect w/h < 1.6 (tall drawing): circuit column on the left, full height; details drawer + waveforms on the right.
-// aspect >= 1.6 (wide drawing): circuit + details on top, waveforms below. The splitter size is remembered per circuit.
-const LAYOUT_SPLIT = 1.6;
+// ---------------------------------------------------------------- panels and layout
+// Four panels: circuit (#circ), space vectors (#svm, three-level runs only: svm.js calls setPanelAvail), details
+// (#infobox), waveforms (#waves). Each can be hidden (toolbar 'Panels', keys 1-4, the x in its header); the last one
+// shown cannot be hidden. One layout for every circuit (the user's choice, 2026-11-04; root class lay-tall):
+//   circ column --circw on the left, full height; on the right [svm --svmw | info 1fr] (height --infoh) over the
+//   waveforms. A wide drawing fits the column's width (at most 55 % of the window) and leaves room under it.
+// setLayout writes main's grid (columns, rows, areas) from the panels shown: a hidden panel drops its track and its
+// neighbours take the space. Every edge between two shown panels is a splitter (#sp-v1, #sp-v2, #sp-h): dragging it
+// (or the arrow keys on it) sizes the fixed track next to it; double-click / Enter returns that size to its default.
+// Sizes are remembered per circuit (circuitview.layout.<circuit>.tall), the panel set globally (circuitview.panels).
+// The names setLayout, --circw and lay-tall are kept: office/live/live.js patches setLayout and sets --circw after it.
+// a self-contained export (EMB) writes nothing: the file:// origin is shared by every exported file
 const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
-  set(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* no storage */ } } };
+  set(k, v) { if (EMB) return; try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* no storage */ } } };
+const PANELS = ['circ', 'svm', 'info', 'waves'];
+const PANEL_EL = { circ: 'circ', svm: 'svm', info: 'infobox', waves: 'waves' };
+const PANEL_KEY = 'circuitview.panels';
+const PV = (() => {                                             // shown (the user's choice) per panel
+  const saved = store.get(PANEL_KEY), v = Object.assign({ circ: true, svm: true, info: true, waves: true }, saved || {});
+  if (!saved && store.get('circuitview.svm') === false) v.svm = false;   // svm.js's former switch
+  return v;
+})();
+const PAVAIL = { circ: true, svm: false, info: true, waves: true };   // available in this run (svm: set by svm.js)
+const panelShown = id => !!(PAVAIL[id] && PV[id]);
+const GAP = 8, PANE_H = 32;
+const MIN = { circW: 280, svm: 160, infoW: 300, infoH: 120, wavesW: 360, wavesH: 130 };
+const LAYMEM = {};                                              // sizes in memory (also when nothing can be stored)
+let LAY = null;                                                 // the last plan: sizes and splitter roles (drag)
 function layoutMode() {
   const vb = S.circ && S.circ.svg.viewBox.baseVal, a = vb && vb.height ? vb.width / vb.height : 2;
-  return { a, tall: a < LAYOUT_SPLIT, key: 'circuitview.split.' + (S.circName || '-') + (a < LAYOUT_SPLIT ? '.tall' : '.wide') };
+  return { a, key: 'circuitview.layout.' + (S.circName || '-') + '.tall' };
+}
+function savedSizes(key) {
+  if (!LAYMEM[key]) {
+    let s = store.get(key);
+    if (!s || typeof s !== 'object') {                          // the former single splitter size
+      const old = store.get(key.replace('.layout.', '.split.'));
+      s = typeof old === 'number' ? { circw: old } : {};
+    }
+    LAYMEM[key] = s;
+  }
+  return LAYMEM[key];
+}
+function saveSizes(key) { const s = LAYMEM[key]; store.set(key, s && Object.keys(s).length ? s : null); }
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+const wavesKeep = H => Math.min(300, Math.round(0.4 * H));             // default height kept for the waveforms
+const svmSide = h => Math.max(MIN.svm, Math.round(h - PANE_H - 52));    // square diagram: row height - header - readout
+// the plan of one layout: grid columns / rows / areas, the size variables and, per splitter, the size it moves
+function planLayout(W, H, a, sv) {
+  const sh = panelShown, collapsed = $('#infobox').classList.contains('collapsed');
+  const vals = {}, cols = [], areas = [], rows = [], sp = {};
+  const mid = ['svm', 'info'].filter(sh), waves = sh('waves'), circ = sh('circ');
+  // ---- circ column | [svm | info] over the waveforms
+  const right = mid.length > 0 || waves;
+  const rightMin = Math.max(waves ? MIN.wavesW : 0, (sh('svm') ? MIN.svm : 0) + (sh('info') ? MIN.infoW : 0) + (mid.length > 1 ? GAP : 0));
+  let circw = sv.circw;
+  if (!circw) {
+    const svgH = H - 2 - 16 - 80;                               // card border, svghost insets (tall)
+    circw = Math.min(0.55 * innerWidth, svgH * a + 48 + 2, W - GAP - 560);
+  }
+  circw = circ && right ? Math.round(clamp(circw, MIN.circW, Math.max(MIN.circW, W - GAP - rightMin))) : W;
+  const rightW = circ ? W - GAP - circw : W;
+  const topAuto = !sh('svm') && collapsed;                      // Details alone and collapsed: its header only
+  let infoh = sv.infoh || Math.round(Math.max(160, Math.min(0.45 * H, H - GAP - wavesKeep(H))));
+  infoh = waves ? Math.round(clamp(infoh, sh('svm') ? MIN.svm + PANE_H + 40 : MIN.infoH, Math.max(MIN.infoH, H - GAP - MIN.wavesH))) : H;
+  let svmw = sv.svmw || (sh('info') ? Math.min(svmSide(infoh), Math.round(0.5 * (rightW - GAP))) : svmSide(infoh));
+  if (sh('info')) svmw = Math.round(clamp(svmw, MIN.svm, Math.max(MIN.svm, rightW - GAP - MIN.infoW)));
+  Object.assign(vals, { circw, infoh, svmw });
+  const rcols = [], rtop = [];
+  mid.forEach((id, k) => {
+    if (k) { rcols.push(GAP + 'px'); rtop.push('sp-v2'); sp['sp-v2'] = { dir: 'x', A: 'svmw', B: null }; }
+    rcols.push(id === 'svm' && mid.length > 1 ? 'var(--svmw)' : 'minmax(0, 1fr)'); rtop.push(id);
+  });
+  if (!rcols.length && waves) rcols.push('minmax(0, 1fr)');
+  const left = circ ? ['circ', ...(right ? ['sp-v1'] : [])] : [];
+  if (circ) cols.push(right ? 'var(--circw)' : 'minmax(0, 1fr)', ...(right ? [GAP + 'px'] : []));
+  if (circ && right) sp['sp-v1'] = { dir: 'x', A: 'circw', B: null };
+  cols.push(...rcols);
+  if (mid.length) { areas.push([...left, ...rtop]); rows.push(waves ? (topAuto ? 'auto' : 'var(--infoh)') : 'minmax(0, 1fr)'); }
+  if (mid.length && waves) { areas.push([...left, ...rcols.map(() => 'sp-h')]); rows.push(GAP + 'px'); sp['sp-h'] = { dir: 'y', A: topAuto ? null : 'infoh', B: null }; }
+  if (waves) { areas.push([...left, ...rcols.map(() => 'waves')]); rows.push('minmax(0, 1fr)'); }
+  if (!areas.length) { areas.push(left); rows.push('minmax(0, 1fr)'); }
+  return { cols, rows, areas, vals, sp };
 }
 function setLayout() {
-  const { a, tall, key } = layoutMode(), root = document.documentElement, main = $('main');
-  root.classList.toggle('lay-tall', tall); root.classList.toggle('lay-wide', !tall);
-  const saved = store.get(key);
-  if (tall) {
-    const availH = main.clientHeight - 8 - 8, svgH = availH - 2 - 16 - 80;          // card border, svghost insets (tall)
-    const fit = Math.min(0.55 * innerWidth, svgH * a + 48 + 2);
-    const w = Math.round(Math.max(280, Math.min(saved || fit, innerWidth - 560)));
-    root.style.setProperty('--circw', w + 'px');
-  } else {
-    const panelW = main.clientWidth - 16 - 8 - (parseFloat(css('--infow')) || 344), fit = panelW / a + 68 + 2;
-    const h = saved ? Math.max(140, saved) : Math.round(Math.min(Math.max(fit, 0.35 * innerHeight), 0.6 * innerHeight));
-    root.style.setProperty('--toph', h + 'px');
+  const { a, key } = layoutMode(), root = document.documentElement, main = $('main');
+  root.classList.add('lay-tall');
+  const cs = getComputedStyle(main);
+  const W = main.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const H = main.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  if (!(W > 0 && H > 0)) return;
+  const L = planLayout(W, H, a, savedSizes(key));
+  const set = (p, v) => { if (main.style[p] !== v) main.style[p] = v; };
+  set('gridTemplateColumns', L.cols.join(' ')); set('gridTemplateRows', L.rows.join(' '));
+  set('gridTemplateAreas', L.areas.map(r => '"' + r.join(' ') + '"').join(' '));
+  for (const k in L.vals) if (isFinite(L.vals[k])) { const v = Math.round(L.vals[k]) + 'px'; if (root.style.getPropertyValue('--' + k) !== v) root.style.setProperty('--' + k, v); }
+  for (const id of ['sp-v1', 'sp-v2', 'sp-h']) {
+    const el = $('#' + id), s = L.sp[id], live = !!(s && (s.A || s.B));
+    el.hidden = !s; el.classList.toggle('inert', !!s && !live);
+    if (!s) continue;
+    el.setAttribute('aria-orientation', s.dir === 'x' ? 'vertical' : 'horizontal');
+    el.tabIndex = live ? 0 : -1;
+    if (live) el.setAttribute('aria-valuenow', String(Math.round(L.vals[s.B || s.A]))); else el.removeAttribute('aria-valuenow');
+    el.setAttribute('aria-label', live ? 'panel edge: drag or use the arrow keys to resize; Enter: default size' : 'panel edge');
+    el.title = live ? 'drag to resize (double-click: default size)' : '';
   }
+  LAY = { key, ...L };
+}
+// panel switches: toolbar buttons (aria-pressed), the x in each panel header; the last panel shown stays
+function syncPanelUI() {
+  const shown = PANELS.filter(panelShown);
+  for (const id of PANELS) {
+    const el = document.getElementById(PANEL_EL[id]); if (el) el.hidden = !panelShown(id);
+    document.querySelectorAll(`#panels [data-panel="${id}"]`).forEach(b => {
+      b.hidden = !PAVAIL[id]; b.setAttribute('aria-pressed', String(panelShown(id)));
+      b.disabled = shown.length === 1 && panelShown(id);
+    });
+  }
+  document.querySelectorAll('.pane-x').forEach(b => { b.disabled = shown.length === 1; });
+}
+function setPanelAvail(id, ok) { PAVAIL[id] = !!ok; syncPanelUI(); }
+function setPanel(id, on) {
+  if (!PAVAIL[id] || panelShown(id) === !!on) return;
+  if (!on && PANELS.filter(panelShown).length <= 1) return;
+  const a = document.activeElement, inside = !on && a && a.closest && a.closest('#' + PANEL_EL[id]);
+  PV[id] = !!on; store.set(PANEL_KEY, PV); syncPanelUI();
+  if (inside) { const b = $(`#panels [data-panel="${id}"]`); if (b && !b.hidden) b.focus(); else blurControls(); }
+  setLayout(); redraw();
+}
+function setDetailsOpen(open) {
+  const ib = $('#infobox'), ih = $('#infohead');
+  ib.classList.toggle('collapsed', !open); ih.setAttribute('aria-expanded', String(open)); store.set('circuitview.details', open);
+}
+function resetLayout() {
+  const key = layoutMode().key; LAYMEM[key] = {}; store.set(key, null);
+  for (const id of PANELS) PV[id] = true;
+  store.set(PANEL_KEY, PV); setDetailsOpen(true); syncPanelUI(); setLayout(); redraw();
 }
 function wireSplit() {
-  const sp = $('#split');
-  sp.addEventListener('pointerdown', e => {
-    blurControls(); capture(sp, e);
-    const { tall, key } = layoutMode(), x0 = e.clientX, y0 = e.clientY;
-    const c0 = tall ? $('#circ').offsetWidth : $('#circ').offsetHeight;
-    const mv = ev => {
-      const v = tall ? Math.max(280, Math.min(c0 + ev.clientX - x0, innerWidth - 560)) : Math.max(140, c0 + ev.clientY - y0);
-      document.documentElement.style.setProperty(tall ? '--circw' : '--toph', Math.round(v) + 'px'); store.set(key, Math.round(v)); redraw();
-    };
-    const up = () => { sp.removeEventListener('pointermove', mv); sp.removeEventListener('pointerup', up); };
-    sp.addEventListener('pointermove', mv); sp.addEventListener('pointerup', up);
-  });
-  sp.addEventListener('dblclick', () => { store.set(layoutMode().key, null); setLayout(); redraw(); });
+  // splitters: drag, arrow keys (16 px, Shift 64 px), Home / End (smallest / largest), Enter or double-click (default)
+  const move = (sp, d, from) => {                               // move the edge by d px from the plan 'from'
+    const s = from.sp[sp.id]; if (!s || !(s.A || s.B)) return;
+    const v = s.B || s.A, sv = savedSizes(from.key);
+    sv[v] = Math.round(from.vals[v] + (s.B ? -d : d));
+    setLayout(); if (LAY.vals[v] !== undefined) sv[v] = Math.round(LAY.vals[v]);   // keep what is shown (clamped)
+    saveSizes(from.key); redraw();
+  };
+  const reset = sp => {
+    const s = LAY && LAY.sp[sp.id]; if (!s || !(s.A || s.B)) return;
+    delete savedSizes(LAY.key)[s.B || s.A]; saveSizes(LAY.key); setLayout(); redraw();
+  };
+  const snap = () => ({ ...LAY, vals: { ...LAY.vals } });
+  for (const sp of document.querySelectorAll('.sp')) {
+    sp.addEventListener('pointerdown', e => {
+      const s = LAY && LAY.sp[sp.id];
+      if (!s || !(s.A || s.B) || e.button !== 0) return;
+      e.preventDefault(); capture(sp, e);
+      const from = snap(), x0 = e.clientX, y0 = e.clientY;
+      document.body.classList.add('dragging', s.dir === 'x' ? 'drag-x' : 'drag-y'); sp.classList.add('on');
+      const mv = ev => move(sp, s.dir === 'x' ? ev.clientX - x0 : ev.clientY - y0, from);
+      const up = () => {
+        sp.removeEventListener('pointermove', mv); sp.removeEventListener('pointerup', up); sp.removeEventListener('pointercancel', up);
+        document.body.classList.remove('dragging', 'drag-x', 'drag-y'); sp.classList.remove('on');
+      };
+      sp.addEventListener('pointermove', mv); sp.addEventListener('pointerup', up); sp.addEventListener('pointercancel', up);
+    });
+    sp.addEventListener('dblclick', () => reset(sp));
+    sp.addEventListener('keydown', e => {
+      const s = LAY && LAY.sp[sp.id]; if (!s || !(s.A || s.B)) return;
+      const k = e.key, step = e.shiftKey ? 64 : 16;
+      const fwd = s.dir === 'x' ? 'ArrowRight' : 'ArrowDown', back = s.dir === 'x' ? 'ArrowLeft' : 'ArrowUp';
+      let d = null;
+      if (k === fwd) d = step; else if (k === back) d = -step;
+      else if (k === 'Home') d = s.B ? 1e5 : -1e5; else if (k === 'End') d = s.B ? -1e5 : 1e5;
+      else if (k === 'Enter') { e.preventDefault(); reset(sp); return; }
+      if (d === null) return;
+      e.preventDefault(); e.stopPropagation(); move(sp, d, snap());
+    });
+  }
+  // panel switches and the x in each panel header
+  document.querySelectorAll('#panels [data-panel]').forEach(b => { b.onclick = () => setPanel(b.dataset.panel, !panelShown(b.dataset.panel)); });
+  document.querySelectorAll('.pane-x').forEach(b => { b.onclick = e => { e.stopPropagation(); setPanel(b.dataset.hide, false); }; });
+  // Details: collapse to its header (with the leg summary)
   const ib = $('#infobox'), ih = $('#infohead');
   $('#info').addEventListener('scroll', moreFade, { passive: true }); addEventListener('resize', moreFade);
-  const setOpen = open => { ib.classList.toggle('collapsed', !open); ih.setAttribute('aria-expanded', String(open)); store.set('circuitview.details', open); };
-  ih.addEventListener('click', () => { setOpen(ib.classList.contains('collapsed')); redraw(); });
-  if (store.get('circuitview.details') === false) setOpen(false);
+  ih.addEventListener('click', () => { setDetailsOpen(ib.classList.contains('collapsed')); setLayout(); redraw(); });
+  if (store.get('circuitview.details') === false) setDetailsOpen(false);
+  // the keys popover ('?'): mouse and keyboard reference, Reset layout
+  const kb = $('#keysbtn'), km = $('#keys');
+  const closeKeys = () => { km.hidden = true; kb.setAttribute('aria-expanded', 'false'); };
+  const openKeys = () => {
+    if (S.closeSet) S.closeSet();                                 // one popover at a time
+    const r = kb.getBoundingClientRect(); km.hidden = false;
+    km.style.top = (r.bottom + 6) + 'px'; km.style.left = Math.max(8, Math.min(r.right - km.offsetWidth, innerWidth - km.offsetWidth - 8)) + 'px';
+    kb.setAttribute('aria-expanded', 'true'); $('#relayout').focus({ preventScroll: true });
+  };
+  kb.onclick = e => { e.stopPropagation(); if (km.hidden) openKeys(); else closeKeys(); };
+  $('#relayout').onclick = () => { closeKeys(); resetLayout(); };
+  addEventListener('click', e => { if (!km.hidden && !km.contains(e.target)) closeKeys(); });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !km.hidden) { closeKeys(); kb.focus(); } });
+  S.toggleKeys = () => { if (km.hidden) openKeys(); else { closeKeys(); kb.focus(); } };
+  // the settings popover (gear): load symbol
+  const sb = $('#setbtn'), sm = $('#settings');
+  const closeSet = () => { sm.hidden = true; sb.setAttribute('aria-expanded', 'false'); };
+  const openSet = () => {
+    closeKeys(); syncSettings(); const r = sb.getBoundingClientRect(); sm.hidden = false;
+    sm.style.top = (r.bottom + 6) + 'px'; sm.style.left = Math.max(8, Math.min(r.right - sm.offsetWidth, innerWidth - sm.offsetWidth - 8)) + 'px';
+    sb.setAttribute('aria-expanded', 'true'); const c = sm.querySelector('input:checked') || sm.querySelector('input:not(:disabled)'); if (c) c.focus({ preventScroll: true });
+  };
+  S.closeSet = closeSet;
+  sb.hidden = !!EMB;                                               // an exported file carries one drawing only
+  sb.onclick = e => { e.stopPropagation(); if (sm.hidden) openSet(); else closeSet(); };
+  addEventListener('click', e => { if (!sm.hidden && !sm.contains(e.target)) closeSet(); });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !sm.hidden) { closeSet(); sb.focus(); } });
+  syncPanelUI(); setLayout();
 }
 // ---------------------------------------------------------------- interaction
 function setView(a, b) {
@@ -1022,8 +1290,8 @@ function jumpEdge(dir) {
 }
 function zoomAround(span) { setView(S.cur - span / 2, S.cur + span / 2); redraw(); }
 function resetView() {
-  S.view = [S.t0, S.t1]; S.rows.forEach(r => { r.y = null; r.h = null; });
-  store.set(layoutMode().key, null); buildRows(); redraw();
+  S.view = [S.t0, S.t1]; S.rows.forEach(r => { r.y = null; r.h = null; r.hl = null; });   // the panel layout stays (Reset layout: '?')
+  buildRows(); redraw();
 }
 function wireUI() {
   $('#fit').onclick = () => { S.view = [S.t0, S.t1]; redraw(); };
@@ -1035,14 +1303,21 @@ function wireUI() {
   for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel'])
     addEventListener(ev, () => { FLOW.input = performance.now(); if (FLOW.idle) { FLOW.idle = false; flowStart(); } }, { passive: true, capture: true });
   $('#addrow').onclick = () => { S.rows.push({ sigs: [] }); buildRows(); redraw(); const R = $('#rows'); R.scrollTop = R.scrollHeight; };
-  $('#run').onchange = () => { $('#run').blur(); openRun($('#run').value); };
+  $('#run').onchange = () => { $('#run').blur(); runTitle(); openRun($('#run').value); };
   addEventListener('keydown', e => {
     if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {          // always the time cursor, also when a select has focus
       e.preventDefault(); if (e.target.tagName === 'SELECT') e.target.blur();
       const d = e.key === 'ArrowRight' ? 1 : -1;
       if (e.shiftKey) { S.cur = Math.min(S.t1, Math.max(S.t0, S.cur + d * 1e-6)); drawCursor(); } else jumpEdge(d);
+      return;
     }
+    // panels: 1-4 show / hide, 0 all panels at their default sizes, ? the keys popover
+    if (e.ctrlKey || e.altKey || e.metaKey || e.target.tagName === 'SELECT') return;
+    const P = { 1: 'circ', 2: 'svm', 3: 'info', 4: 'waves' }[e.key];
+    if (P) { e.preventDefault(); setPanel(P, !panelShown(P)); }
+    else if (e.key === '0') { e.preventDefault(); resetLayout(); }
+    else if (e.key === '?' && S.toggleKeys && !$('#keysbtn').hidden && getComputedStyle($('#keysbtn')).display !== 'none') { e.preventDefault(); S.toggleKeys(); }
   });
   addEventListener('resize', redraw);
   new ResizeObserver(() => { if (S.meta) redraw(); }).observe($('#waves'));
@@ -1057,8 +1332,16 @@ function wireUI() {
     go(e); const up = () => { ov.removeEventListener('pointermove', go); ov.removeEventListener('pointerup', up); };
     ov.addEventListener('pointermove', go); ov.addEventListener('pointerup', up);
   });
+  ov.addEventListener('keydown', e => {                           // focused overview: the arrow keys move the view
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault(); e.stopPropagation();
+    const s = S.view[1] - S.view[0], d = (e.key === 'ArrowRight' ? 1 : -1) * s * (e.shiftKey ? 1 : 0.25);
+    setView(S.view[0] + d, S.view[1] + d); redraw();
+  });
   wireSplit();
 }
+// the run list shows the title cut to the box: the whole title as its tooltip
+function runTitle() { const o = $('#run').selectedOptions[0]; $('#run').title = o ? o.textContent : 'simulation run'; }
 (async function main() {
   wireUI();
   S.runs = await getJSON('/api/runs');
