@@ -329,16 +329,16 @@ kbd { display: inline-block; height: 18px; padding: 0 6px; border-radius: 4px; b
 #settings { position: fixed; z-index: 20; width: 300px; max-width: calc(100vw - 16px); padding: 6px 0 0; background: var(--surface);
   border: 1px solid var(--ctl); border-radius: var(--r); box-shadow: 0 6px 18px rgba(22, 25, 29, .12); }
 #settings .kh { padding: 8px 14px 4px; font-size: var(--fs-cap); color: var(--ink-3); }
-#loadopts { display: flex; flex-direction: column; gap: 2px; padding: 2px 8px 8px; }
-#loadopts label { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 8px; border-radius: var(--r); cursor: pointer; color: var(--ink); }
-#loadopts label:hover { background: var(--ctl-hover); }
-#loadopts label.on { background: var(--well); box-shadow: inset 0 0 0 1px var(--ctl); }
-#loadopts label.off { color: var(--ink-3); cursor: default; }
-#loadopts label.off:hover { background: none; }
-#loadopts input { margin: 0; accent-color: var(--on-ink); }
-#loadopts svg { width: 46px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
-#loadopts .lnm { flex: 1; }
-#loadopts .dflt { font-size: var(--fs-cap); color: var(--ink-3); }
+#loadopts, #placeopts { display: flex; flex-direction: column; gap: 2px; padding: 2px 8px 8px; }
+#loadopts label, #placeopts label { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 8px; border-radius: var(--r); cursor: pointer; color: var(--ink); }
+#loadopts label:hover, #placeopts label:hover { background: var(--ctl-hover); }
+#loadopts label.on, #placeopts label.on { background: var(--well); box-shadow: inset 0 0 0 1px var(--ctl); }
+#loadopts label.off, #placeopts label.off { color: var(--ink-3); cursor: default; }
+#loadopts label.off:hover, #placeopts label.off:hover { background: none; }
+#loadopts input, #placeopts input { margin: 0; accent-color: var(--on-ink); }
+#loadopts svg, #placeopts svg { width: 46px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+#loadopts .lnm, #placeopts .lnm { flex: 1; }
+#loadopts .dflt, #placeopts .dflt { font-size: var(--fs-cap); color: var(--ink-3); }
 #settings .snote { padding: 8px 14px 10px; border-top: 1px solid var(--rule); background: var(--well); font-size: var(--fs-cap); color: var(--ink-2); line-height: 1.45; }
 
 /* ================================================================ circuit conduction styles

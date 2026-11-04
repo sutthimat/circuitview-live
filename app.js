@@ -131,8 +131,13 @@ async function openCircuit(name) {
   S.circName = name; S.circ = null; $('#svghost').innerHTML = '';
   let J; try { J = await getJSON(`circuits/${name}/circuit.json`); } catch (e) { $('#svghost').textContent = 'no circuit "' + name + '"'; return; }
   // load symbol (Settings): circuit.json is the default drawing and lists the others (legcells.finish, load)
-  const want = S.loadStyle || store.get(LOAD_KEY), alt = J.load && want !== J.load.style && (J.load.styles || []).find(s => s.id === want);
-  if (alt) { try { J = await getJSON(`circuits/${name}/${alt.file}`); } catch (e) { /* not in this file: the default drawing */ } }
+  // and placement (below the inverter / to its right): circuit.json lists every drawing (style x placement)
+  if (J.load) {
+    const want = S.loadStyle || store.get(LOAD_KEY), place = S.loadPlace || store.get(PLACE_KEY) || 'below';
+    const ent = (J.load.styles || []).find(s => s.id === want) || (J.load.styles || []).find(s => s.id === J.load.style);
+    const file = ent && (place === 'right' && ent.file_right ? ent.file_right : ent.file);
+    if (file && file !== 'circuit.json') { try { J = await getJSON(`circuits/${name}/${file}`); } catch (e) { /* not there: the default drawing */ } }
+  }
   if (seq !== S.circSeq) return;                                  // overtaken by another call
   const txt = await getText(`circuits/${name}/${J.svg}`);
   if (seq !== S.circSeq) return;
@@ -166,13 +171,19 @@ async function openCircuit(name) {
 // ---------------------------------------------------------------- settings: load symbol
 // The choice is remembered (circuitview.load) and applies to every circuit that has that drawing; the others keep
 // their default. S.loadStyle: a style asked for by a state (applyState: a slide or an exported file), not stored.
-const LOAD_KEY = 'circuitview.load';
+const LOAD_KEY = 'circuitview.load', PLACE_KEY = 'circuitview.loadplace';
 const LOAD_ICON = {
   rle: '<path d="M0 11h2l1.2-4.5 2.2 9 2.2-9 2.2 9 1.2-4.5h1.6a2.7 2.7 0 0 1 5.4 0 2.7 2.7 0 0 1 5.4 0 2.7 2.7 0 0 1 5.4 0H33"/><path d="M33 11a5 5 0 1 1 10 0 5 5 0 1 1-10 0M35.2 11c.95-2.4 1.9-2.4 2.8 0s1.85 2.4 2.8 0M43 11h3"/>',
   rl: '<path d="M1 11h5l1.5-4.5 2.6 9 2.6-9 2.6 9 1.5-4.5h2.2a3 3 0 0 1 6 0 3 3 0 0 1 6 0 3 3 0 0 1 6 0H45"/>',
   zbox: '<path d="M1 11h10M35 11h10"/><path d="M10.4 8.6v6.4h23.6" stroke-width="2" stroke-linecap="butt"/><rect x="11" y="7" width="24" height="8" fill="var(--surface)"/>',
   box: '<path d="M12 1v7M23 1v7M34 1v7"/><path d="M4.4 9.8v10.4h36.6" stroke-width="2.2" stroke-linecap="butt"/><rect x="5" y="8" width="36" height="11" fill="var(--surface)"/>',
 };
+function setLoadPlace(id) {
+  S.loadPlace = null; store.set(PLACE_KEY, id);
+  const name = S.circName; if (!name) return;
+  clearTimeout(S.loadTm);
+  S.loadTm = setTimeout(() => openCircuit(name).then(() => { setLayout(); redraw(); }), 150);
+}
 function setLoadStyle(id) {
   S.loadStyle = null; store.set(LOAD_KEY, id);
   const name = S.circName; if (!name) return;
@@ -192,7 +203,23 @@ function syncSettings() {
   }).join('');
   box.querySelectorAll('input').forEach(r => { r.onchange = () => { if (r.checked) setLoadStyle(r.value); }; });
   if (focused) { const c = box.querySelector('input:checked'); if (c) c.focus({ preventScroll: true }); }
+  // placement: below the inverter (the drop under the N rail) or to its right (straight phase wires)
+  const pb = $('#placeopts'); if (!pb) return;
+  const places = L && L.places ? L.places : ['below'], pcur = L ? (L.place || 'below') : 'below', pf = pb.contains(document.activeElement);
+  pb.innerHTML = ['below', 'right'].map(id => {
+    const ok = places.includes(id), on = id === pcur, nm = { below: 'Below the inverter', right: 'Right of the inverter' }[id];
+    const tag = !ok ? 'not drawn' : id === 'below' ? 'default' : '';
+    return `<label class="${on ? 'on' : ''}${ok ? '' : ' off'}">` +
+      `<input type="radio" name="loadplace" value="${id}"${on ? ' checked' : ''}${ok ? '' : ' disabled'}${tag ? ` aria-describedby="lp-${id}"` : ''}>` +
+      `<svg viewBox="0 0 46 22" aria-hidden="true">${PLACE_ICON[id]}</svg><span class="lnm">${nm}</span>${tag ? `<span class="dflt" id="lp-${id}">${tag}</span>` : ''}</label>`;
+  }).join('');
+  pb.querySelectorAll('input').forEach(r => { r.onchange = () => { if (r.checked) setLoadPlace(r.value); }; });
+  if (pf) { const c = pb.querySelector('input:checked'); if (c) c.focus({ preventScroll: true }); }
 }
+const PLACE_ICON = {
+  below: '<rect x="3" y="2" width="22" height="9" rx="1"/><path d="M9 11v9M14 11v9M19 11v9"/>',
+  right: '<rect x="3" y="4" width="18" height="14" rx="1"/><path d="M21 8h22M21 11h22M21 14h22"/>',
+};
 
 // ---------------------------------------------------------------- circuit state at the cursor
 function legState(L, t) {

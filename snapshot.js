@@ -13,16 +13,19 @@ const SNAP = { W: 1600, H: 900, PAD: 24, HEAD: 40, LEG: 30, AXIS: 30, LAB: 170, 
 function cvState() {
   return { v: 1, run: S.run, t: S.cur, view: S.view.slice(), style: CV_STYLE,
     load: S.circ && S.circ.J.load ? S.circ.J.load.style : null,
+    place: S.circ && S.circ.J.load ? (S.circ.J.load.place || 'below') : null,
     rows: S.rows.map(r => ({ sigs: r.sigs.slice(), h: r.h || null, y: r.y || null })) };
 }
 async function applyState(st) {
   if (!st || !st.run) throw new Error('no CircuitView state');
   S.rows = (st.rows || []).map(r => ({ sigs: r.sigs.slice(), h: r.h || undefined, y: r.y || undefined }));
-  const cur = S.circ && S.circ.J.load ? S.circ.J.load.style : null;
+  const cur = S.circ && S.circ.J.load ? S.circ.J.load.style : null, pcur = S.circ && S.circ.J.load ? (S.circ.J.load.place || 'below') : null;
   const load = st.load || (S.circ && S.circ.J.load ? S.circ.J.load.default : null);   // an older state: the default drawing
-  S.loadStyle = load;                                             // the state's load symbol (not stored; the next choice clears it)
-  if (st.run !== S.run) { $('#run').value = st.run; if (load && load !== cur) S.circName = null; await openRun(st.run); }
-  else { if (load && cur && load !== cur) { await openCircuit(S.circName); setLayout(); } buildRows(); }
+  const place = st.place || 'below';
+  S.loadStyle = load; S.loadPlace = place;                        // the state's drawing (not stored; the next choice clears it)
+  const other = (load && load !== cur) || (pcur && place !== pcur);
+  if (st.run !== S.run) { $('#run').value = st.run; if (other) S.circName = null; await openRun(st.run); }
+  else { if (cur && other) { await openCircuit(S.circName); setLayout(); } buildRows(); }
   S.view = st.view.slice(); S.cur = st.t; redraw();
 }
 
