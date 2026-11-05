@@ -2,14 +2,14 @@
 // add-in. The cursor sweeps the view from left to right; the circuit shows the state at the cursor with its flowing
 // arrowheads (the same placement as the app, advanced at the app's speed). Loaded after snapshot.js.
 //   renderVideo({format, seconds, speed, fps, onProgress, stop})  -> {mp4 | gif: Uint8Array, seconds, frames}
-//   format 'mp4' (default) or 'gif' (960 x 540, ~14 frames/s, one 255-colour palette, only the changed pixels per frame);
+//   format 'mp4' (default) or 'gif' (1600 x 900, ~14 frames/s, a 255-colour palette per frame, only the changed pixels);
 //   speed scales the default length (2 = twice as fast); stop() true ends the film early and keeps what is filmed.
 // recordDialog(kind) asks for format and speed, then shows the progress with a Stop button (Export menu).
 // Frames: the 'base' snapshot layer (title, waveforms) rasterised once, the 'top' layer (drawing, legend, cursor,
 // values) per frame; WebCodecs encodes, mp4Mux() below writes the file (one track, no B-frames, faststart).
 'use strict';
 const VID = { W: 1600, H: 900, FPS: 30, RATE: 6e6, KEY_S: 2, PER_STATE: 1.5, MIN_S: 6, MAX_S: 30,
-  GW: 960, GH: 540, GIF_CS: 7, LONGEST: 120 };   // GIF size, GIF frame delay in 1/100 s, longest film in s
+  GW: 1600, GH: 900, GIF_CS: 7, LONGEST: 120 };   // GIF size (full, as the MP4), GIF frame delay in 1/100 s, longest film in s
 
 // default length: about PER_STATE seconds per switching state of the view
 function videoSeconds() {
@@ -177,54 +177,58 @@ function recordDialog(kind) {
   });
 }
 
-// ------------------------------------------------------------------ GIF89a writer: global 256-colour palette, LZW
-// The palette is the 255 most frequent colours of the first frame (5 bits per channel); index 255 is transparent and
-// marks the pixels that did not change since the previous frame, inside the changed rectangle (disposal: keep).
+// ------------------------------------------------------------------ GIF89a writer: a local palette per frame, LZW
+// Every frame carries its own 255-colour table (the most frequent colours of the pixels that changed, 6 bits per
+// channel; the user saw banding and wrong colours with one table from the first frame at 960 x 540); index 255 is
+// transparent and marks the pixels that did not change since the previous frame, inside the changed rectangle
+// (disposal: keep). Full film size (VID.GW x VID.GH = the MP4 size), no scaling, no dithering (line art).
 function gifWriter(W, H, cs) {
   const cv = new OffscreenCanvas(W, H), g = cv.getContext('2d', { willReadFrequently: true });
   g.imageSmoothingQuality = 'high';
   const out = [], put = (...b) => out.push(Uint8Array.from(b)), u16 = v => [v & 255, v >> 8], asc = s => [...s].map(c => c.charCodeAt(0));
-  let pal = null, lut = null, prev = null;
-  put(...asc('GIF89a'), ...u16(W), ...u16(H), 0xf7, 0, 0);      // global colour table of 256 entries follows
-  function palette(px) {
-    const cnt = new Uint32Array(32768);
-    for (let i = 0; i < px.length; i += 4) cnt[(px[i] >> 3) << 10 | (px[i + 1] >> 3) << 5 | px[i + 2] >> 3]++;
-    const keys = [...cnt.keys()].filter(k => cnt[k]).sort((p, q) => cnt[q] - cnt[p]).slice(0, 255);
-    pal = keys.map(k => [k >> 10 & 31, k >> 5 & 31, k & 31].map(v => Math.round(v * 255 / 31)));
-    while (pal.length < 256) pal.push([255, 255, 255]);
-    out.push(Uint8Array.from(pal.flat()));
-    put(0x21, 0xff, 11, ...asc('NETSCAPE2.0'), 3, 1, 0, 0, 0);   // loop for ever
-    lut = new Int16Array(32768).fill(-1);
-  }
-  const near = k => {                                            // nearest palette colour (cached per 15-bit colour)
-    if (lut[k] >= 0) return lut[k];
-    const r = (k >> 10 & 31) * 255 / 31, gg = (k >> 5 & 31) * 255 / 31, b = (k & 31) * 255 / 31;
-    let best = 0, bd = Infinity;
-    for (let j = 0; j < 255; j++) { const p = pal[j], e = (p[0] - r) ** 2 + (p[1] - gg) ** 2 + (p[2] - b) ** 2; if (e < bd) { bd = e; best = j; } }
-    return (lut[k] = best);
-  };
+  let prev = null;
+  put(...asc('GIF89a'), ...u16(W), ...u16(H), 0x70, 0, 0);      // no global colour table: every frame has its own
+  put(0x21, 0xff, 11, ...asc('NETSCAPE2.0'), 3, 1, 0, 0, 0);     // loop for ever
+  const key6 = (px, i) => (px[i] >> 2) << 12 | (px[i + 1] >> 2) << 6 | px[i + 2] >> 2;
+  const ch = v => (v << 2) | (v >> 4);                            // 6-bit channel back to 8 bits
   function frame(src) {
     g.drawImage(src, 0, 0, W, H);
     const px = g.getImageData(0, 0, W, H).data;
-    if (!pal) palette(px);
-    const ix = new Uint8Array(W * H);
-    for (let i = 0, j = 0; j < ix.length; i += 4, j++) ix[j] = near((px[i] >> 3) << 10 | (px[i + 1] >> 3) << 5 | px[i + 2] >> 3);
     let x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1;
     if (prev) {                                                  // only the rectangle that changed
       x0 = W; y0 = H; x1 = -1; y1 = -1;
-      for (let y = 0; y < H; y++) for (let x = 0, j = y * W; x < W; x++, j++) if (ix[j] !== prev[j]) {
-        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (let y = 0; y < H; y++) for (let x = 0, i = y * W * 4; x < W; x++, i += 4) {
+        if (px[i] !== prev[i] || px[i + 1] !== prev[i + 1] || px[i + 2] !== prev[i + 2]) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
       }
       if (x1 < 0) x0 = y0 = x1 = y1 = 0;
     }
     const w = x1 - x0 + 1, h = y1 - y0 + 1, sub = new Uint8Array(w * h);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const j = (y + y0) * W + x + x0;
-      sub[y * w + x] = prev && ix[j] === prev[j] ? 255 : ix[j];
+    // this frame's palette: the most frequent changed colours
+    const cnt = new Map();
+    for (let y = 0; y < h; y++) for (let x = 0, i = ((y + y0) * W + x0) * 4; x < w; x++, i += 4) {
+      if (prev && px[i] === prev[i] && px[i + 1] === prev[i + 1] && px[i + 2] === prev[i + 2]) continue;
+      const k = key6(px, i); cnt.set(k, (cnt.get(k) || 0) + 1);
     }
-    prev = ix;
+    const keys = [...cnt.keys()].sort((p, q) => cnt.get(q) - cnt.get(p)).slice(0, 255);
+    const pal = keys.map(k => [ch(k >> 12 & 63), ch(k >> 6 & 63), ch(k & 63)]);
+    const idx = new Map(keys.map((k, j) => [k, j]));
+    const near = k => {                                          // a colour beyond the 255: the nearest one (cached)
+      let j = idx.get(k); if (j !== undefined) return j;
+      const r = ch(k >> 12 & 63), gg = ch(k >> 6 & 63), b = ch(k & 63);
+      let bd = Infinity; j = 0;
+      for (let q = 0; q < pal.length; q++) { const p = pal[q], e = (p[0] - r) ** 2 + (p[1] - gg) ** 2 + (p[2] - b) ** 2; if (e < bd) { bd = e; j = q; } }
+      idx.set(k, j); return j;
+    };
+    for (let y = 0; y < h; y++) for (let x = 0, i = ((y + y0) * W + x0) * 4; x < w; x++, i += 4) {
+      sub[y * w + x] = prev && px[i] === prev[i] && px[i + 1] === prev[i + 1] && px[i + 2] === prev[i + 2] ? 255 : (pal.length ? near(key6(px, i)) : 255);
+    }
+    while (pal.length < 256) pal.push([255, 255, 255]);
+    prev = px;
     put(0x21, 0xf9, 4, 0x05, ...u16(cs), 255, 0);                // disposal 1 (keep), transparent index 255, delay cs/100 s
-    put(0x2c, ...u16(x0), ...u16(y0), ...u16(w), ...u16(h), 0);
+    put(0x2c, ...u16(x0), ...u16(y0), ...u16(w), ...u16(h), 0x87); // local colour table of 256 entries follows
+    out.push(Uint8Array.from(pal.flat()));
     out.push(lzw(sub, 8));
   }
   function end() {
