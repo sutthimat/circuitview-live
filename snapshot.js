@@ -14,11 +14,13 @@ function cvState() {
   return { v: 1, run: S.run, t: S.cur, view: S.view.slice(), style: CV_STYLE,
     load: S.circ && S.circ.J.load ? S.circ.J.load.style : null,
     place: S.circ && S.circ.J.load ? (S.circ.J.load.place || 'below') : null,
-    rows: S.rows.map(r => ({ sigs: r.sigs.slice(), h: r.h || null, y: r.y || null })) };
+    rows: S.rows.map(r => ({ sigs: r.sigs.slice(), h: r.h || null, y: r.y || null, y2: r.y2 || null, gain: r.gain && Object.keys(r.gain).length ? { ...r.gain } : null })),
+    colors: Object.keys(userColors()).length ? { ...userColors() } : null };
 }
 async function applyState(st) {
   if (!st || !st.run) throw new Error('no CircuitView state');
-  S.rows = (st.rows || []).map(r => ({ sigs: r.sigs.slice(), h: r.h || undefined, y: r.y || undefined }));
+  S.rows = (st.rows || []).map(r => ({ sigs: r.sigs.slice(), h: r.h || undefined, y: r.y || undefined, y2: r.y2 || undefined, gain: r.gain || undefined }));
+  if (st.colors) S.colors = { ...st.colors };                     // the view's trace colours (not stored)
   const cur = S.circ && S.circ.J.load ? S.circ.J.load.style : null, pcur = S.circ && S.circ.J.load ? (S.circ.J.load.place || 'below') : null;
   const load = st.load || (S.circ && S.circ.J.load ? S.circ.J.load.default : null);   // an older state: the default drawing
   const place = st.place || 'below';
@@ -184,10 +186,19 @@ function wavesSVG(x, y, W, H, L = 'full') {          // L: full | base (no curso
         o(T, `<text x="${x + SNAP.LAB - 8}" y="${r2(ly + lh / 2 + 4.5)}" text-anchor="end" font-family="${SNAP.UI}" font-size="13" fill="${ink}">${Math.round(curVal(n))}</text>`);
       });
     } else {
-      let lo = Infinity, hi = -Infinity; for (const n of r.sigs) { const [a, b] = range(n); lo = Math.min(lo, a); hi = Math.max(hi, b); }
-      if (!(hi > lo)) { lo -= 1; hi += 1; } const pad = 0.08 * (hi - lo); lo -= pad; hi += pad;
-      if (r.y) [lo, hi] = r.y;
+      const AX = rowAxes(r), { lo, hi } = AX.L;
       const yv = v => y0 + h - (v - lo) / (hi - lo) * h, nt = Math.max(2, h / 40), d = decFor(niceStep(lo, hi, nt));
+      const yOf = n => { const A = AX.of(n), g = gainOf(r, n); return v => y0 + h - (v * g - A.lo) / (A.hi - A.lo) * h; };
+      if (B && AX.R) {                                           // second unit: its axis inside the plot's right edge
+        const R = AX.R, yr = v => y0 + h - (v - R.lo) / (R.hi - R.lo) * h, d2 = decFor(niceStep(R.lo, R.hi, nt));
+        for (const v of niceTicks(R.lo, R.hi, nt)) {
+          const ty = yr(v); if (ty < y0 + 22 || ty > y0 + h - 8) continue;
+          out += `<line x1="${r2(X0 + pw - 5)}" y1="${r2(ty)}" x2="${r2(X0 + pw)}" y2="${r2(ty)}" stroke="${tok('--tick')}" stroke-width="1"/>` +
+            `<text x="${r2(X0 + pw - 8)}" y="${r2(ty + 4)}" text-anchor="end" font-family="${SNAP.UI}" font-size="12" fill="${slate}" stroke="${tok('--surface')}" stroke-width="3" paint-order="stroke">${fmtTick(v, d2)}</text>`;
+        }
+        out += `<text x="${r2(X0 + pw - 8)}" y="${r2(y0 + 14)}" text-anchor="end" font-family="${SNAP.UI}" font-size="12" fill="${slate}" stroke="${tok('--surface')}" stroke-width="3" paint-order="stroke">${sx(R.unit)}</text>` +
+          `<text x="${X0 - 8}" y="${r2(y0 + 14)}" text-anchor="end" font-family="${SNAP.UI}" font-size="12" fill="${slate}">${sx(AX.L.unit)}</text>`;
+      }
       for (const v of B ? niceTicks(lo, hi, nt) : []) {
         const ty = yv(v); if (ty < y0 + 8 || ty > y0 + h - 8) continue;
         out += `<line x1="${X0}" y1="${r2(ty)}" x2="${r2(X0 + pw)}" y2="${r2(ty)}" stroke="${grid}" stroke-width="1"/>` +
@@ -196,9 +207,10 @@ function wavesSVG(x, y, W, H, L = 'full') {          // L: full | base (no curso
       if (B && lo < 0 && hi > 0) out += `<line x1="${X0}" y1="${r2(yv(0))}" x2="${r2(X0 + pw)}" y2="${r2(yv(0))}" stroke="${tok('--zero')}" stroke-width="1"/>`;
       r.sigs.forEach((n, q) => {
         const col = sigColor(n, q), ly = y0 + 18 + q * 22, u = S.sig[n].unit || '', v = curVal(n);
-        o(B, `<path d="${traceD(n, pw, X0, yv)}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/>` +
+        const gk = gainOf(r, n);
+        o(B, `<path d="${traceD(n, pw, X0, yOf(n))}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/>` +
           `<line x1="${x + 10}" y1="${r2(ly - 4)}" x2="${x + 22}" y2="${r2(ly - 4)}" stroke="${col}" stroke-width="2"/>` +
-          `<text x="${x + 30}" y="${r2(ly + 1)}" font-family="${SNAP.MATH}" fill="${col}">${texSVG(shortLab(n), 16)}</text>`);
+          `<text x="${x + 30}" y="${r2(ly + 1)}" font-family="${SNAP.MATH}" fill="${col}">${texSVG(shortLab(n), 16)}${gk !== 1 ? `<tspan font-family="${SNAP.UI}" font-size="11" fill="${slate}"> ×${fmtGain(gk)}</tspan>` : ''}</text>`);
         o(T, `<text x="${x + SNAP.LAB - 8}" y="${r2(ly)}" text-anchor="end" font-family="${SNAP.UI}" font-size="13" fill="${ink}">${isFinite(v) ? (v < 0 ? '−' : '') + Math.abs(v).toFixed(decOf(n)) : '–'}${u ? `<tspan fill="${slate}" font-size="11"> ${sx(u)}</tspan>` : ''}</text>`);
       });
     }

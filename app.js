@@ -215,10 +215,19 @@ function syncSettings() {
   }).join('');
   pb.querySelectorAll('input').forEach(r => { r.onchange = () => { if (r.checked) setLoadPlace(r.value); }; });
   if (pf) { const c = pb.querySelector('input:checked'); if (c) c.focus({ preventScroll: true }); }
+  // circuit pane: the sampling period at the cursor under the drawing (svm.js; three-level runs)
+  const ob = $('#paneopts');
+  if (ob && typeof window.tspSetting === 'function') {
+    const on = window.tspSetting(), ok = document.documentElement.classList.contains('has-svm');
+    ob.innerHTML = `<label class="${on && ok ? 'on' : ''}${ok ? '' : ' off'}"><input type="checkbox" id="tspchk"${on ? ' checked' : ''}${ok ? '' : ' disabled'}${ok ? '' : ' aria-describedby="tsp-na"'}>` +
+      `<svg viewBox="0 0 46 22" aria-hidden="true">${PLACE_ICON.tsp}</svg><span class="lnm">Sampling period under the circuit</span>${ok ? '' : '<span class="dflt" id="tsp-na">3-level runs</span>'}</label>`;
+    $('#tspchk').onchange = e => { window.tspSetting(e.target.checked); syncSettings(); };
+  } else if (ob) { ob.hidden = true; ob.previousElementSibling.hidden = true; }   // no svm.js on this page
 }
 const PLACE_ICON = {
   below: '<rect x="3" y="2" width="22" height="9" rx="1"/><path d="M9 11v9M14 11v9M19 11v9"/>',
   right: '<rect x="3" y="4" width="18" height="14" rx="1"/><path d="M21 8h22M21 11h22M21 14h22"/>',
+  tsp: '<rect x="3" y="2" width="40" height="7" rx="1"/><path d="M3 15h8v-3h10v3h10v-3h12M3 20h40"/>',
 };
 
 // ---------------------------------------------------------------- circuit state at the cursor
@@ -544,22 +553,32 @@ function drawCircuit() {
     const pts = id.path.map(a => typeof a === 'string' ? C.anchors[subst(a, L.x)] : a).filter(Boolean);
     if (pts.length > 1) mk('path', 'cv-path-idle', { d: pathD(pts, hops), 'data-pts': polyD(pts), stroke: legColor(L), 'data-leg': L.x, 'data-rail': id.rail || '' });
   }
+  // a part that jumps a hop is painted after every other part (its own underlay, case and lane last), so the wire it
+  // jumps over lies BEHIND the arc, as in the drawing (user, 2026-11-05)
+  const arcs = d => /A/.test(d);
   for (const D of drawn) {
-    D.d = D.parts.filter((p, j) => !D.inner[j]).map(p => pathD(p, hops, tol)).join('');
+    const outer = D.parts.filter((p, j) => !D.inner[j]).map(p => pathD(p, hops, tol));
+    D.d = outer.filter(d => !arcs(d)).join(''); D.dh = outer.filter(arcs).join('');
     D.di = D.parts.filter((p, j) => D.inner[j]).map(p => pathD(p, hops, tol)).join('');
     D.wi = Math.min(D.w, 1.25 * K); D.dp = polyD(D.pts);
   }
-  for (const N of chains) { N.d = pathD(N.pts, hops, tol); N.dp = polyD(N.pts); }
-  for (const D of drawn) mk('path', 'cv-path-under', { d: D.d, 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w + 2.2 * K });
-  for (const D of drawn) if (D.st.np) mk('path', 'cv-path-np', { d: D.d, 'data-pts': D.dp, 'stroke-width': D.w + 1.5 * K });
-  for (const N of chains) mk('path', 'cv-path-under', { d: N.d, 'data-pts': N.dp, stroke: N.col, 'stroke-width': N.w + 2.2 * K });
-  for (const D of drawn) mk('path', 'cv-path-case', { d: D.d, 'data-pts': D.dp, 'stroke-width': D.w + 0.9 * K });
-  for (const N of chains) mk('path', 'cv-path-case', { d: N.d, 'data-pts': N.dp, 'stroke-width': N.w + 0.9 * K });
-  for (const D of drawn) if (D.di) mk('path', 'cv-path-case', { d: D.di, 'data-pts': D.dp, 'stroke-width': D.wi + 0.6 * K });
-  for (const a of capTop) mk(...a);
-  for (const D of drawn) mk('path', 'cv-lane', { d: D.d, 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w });
-  for (const D of drawn) if (D.di) mk('path', 'cv-lane', { d: D.di, 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.wi });
-  for (const N of chains) mk('path', 'cv-net', { d: N.d, 'data-pts': N.dp, stroke: N.col, 'stroke-width': N.w, 'data-net': N.net_name, 'data-i': N.net.toFixed(6), 'data-legs': N.users.join('') });
+  for (const N of chains) { N.d = pathD(N.pts, hops, tol); N.dp = polyD(N.pts); N.hop = arcs(N.d); }
+  const layers = (dk, hop) => {
+    const ds = drawn.filter(D => D[dk]), ns = chains.filter(N => !!N.hop === hop);
+    for (const D of ds) mk('path', 'cv-path-under', { d: D[dk], 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w + 2.2 * K });
+    for (const D of ds) if (D.st.np) mk('path', 'cv-path-np', { d: D[dk], 'data-pts': D.dp, 'stroke-width': D.w + 1.5 * K });
+    for (const N of ns) mk('path', 'cv-path-under', { d: N.d, 'data-pts': N.dp, stroke: N.col, 'stroke-width': N.w + 2.2 * K });
+    for (const D of ds) mk('path', 'cv-path-case', { d: D[dk], 'data-pts': D.dp, 'stroke-width': D.w + 0.9 * K });
+    for (const N of ns) mk('path', 'cv-path-case', { d: N.d, 'data-pts': N.dp, 'stroke-width': N.w + 0.9 * K });
+    if (!hop) {
+      for (const D of drawn) if (D.di) mk('path', 'cv-path-case', { d: D.di, 'data-pts': D.dp, 'stroke-width': D.wi + 0.6 * K });
+      for (const a of capTop) mk(...a);
+    }
+    for (const D of ds) mk('path', 'cv-lane', { d: D[dk], 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w });
+    if (!hop) for (const D of drawn) if (D.di) mk('path', 'cv-lane', { d: D.di, 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.wi });
+    for (const N of ns) mk('path', 'cv-net', { d: N.d, 'data-pts': N.dp, stroke: N.col, 'stroke-width': N.w, 'data-net': N.net_name, 'data-i': N.net.toFixed(6), 'data-legs': N.users.join('') });
+  };
+  layers('d', false); layers('dh', true);
   // load parts: lit in the leg colour while their leg conducts; the line stops at the part's body (a paper patch over
   // the body, wide enough for the widest underlay), so the lit zigzag / coil itself carries the current
   const lit = new Map(legs.map(({ L, st }) => [L.x, st.sign !== '0' && st.path.length ? legColor(L) : null]));
@@ -810,7 +829,12 @@ const moreFade = () => { const el = $('#info'); el.classList.toggle('more', el.s
 const mathSpans = html => html.replace(/(<i>[^<]*<\/i>(?:<su[bp]>.*?<\/su[bp]>)*|[α-ωΔ](?:<su[bp]>.*?<\/su[bp]>)*)/g, '<span class="tex">$1</span>');
 
 // ---------------------------------------------------------------- waveform rows
+// trace colours: the user's choice per signal name (signal menu; remembered, carried by cvState) before the defaults
+const COLOR_KEY = 'circuitview.colors';
+const TRACE_COLORS = ['#1f5fbf', '#c0392b', '#2e8b57', '#e07b00', '#7b3fb5', '#0f8a8a', '#8a6d3b', '#d0021b', '#1d1d1f', '#87909a'];
+const userColors = () => S.colors || (S.colors = store.get(COLOR_KEY) || {});
 function sigColor(n, k) {
+  const uc = userColors()[n]; if (uc) return uc;
   const m = /^(?:i|v|s)_([a-f])(?:O|N)?$/.exec(n) || /^g_S([a-f])\d$/.exec(n);
   if (m) return css(PHASE[m[1]]) || LEG_FALLBACK['abcdef'.indexOf(m[1])];
   return PALETTE[k % PALETTE.length];
@@ -841,15 +865,18 @@ function buildRows() {
     r.sigs.forEach((n, k) => {
       const c = document.createElement('button'); c.type = 'button'; c.className = 'chip' + (r.hl === n ? ' hl' : '');
       c.style.setProperty('--c', sigColor(n, k)); c.dataset.sig = n;
-      c.title = `${n} : ${fullLab(n)}\n${isLanes(r) ? '' : 'click: emphasise the trace; '}× or Delete: remove it`;
+      c.title = `${n} : ${fullLab(n)}\n${isLanes(r) ? '' : 'click: emphasise the trace; '}line mark or right-click: colour, scale, remove; Delete: remove it`;
       c.setAttribute('aria-pressed', String(r.hl === n));
-      c.innerHTML = `<span class="sw" title="remove ${esc(n)}"></span><span class="nm tex">${texHTML(shortLab(n))}</span><span class="val"></span>`;
+      const gk = gainOf(r, n);
+      c.innerHTML = `<span class="sw" title="colour, scale, remove"></span><span class="nm"><span class="tex">${texHTML(shortLab(n))}</span>` +
+        (gk !== 1 ? `<span class="gn" title="drawn ×${fmtGain(gk)} (readout: true value)">×${fmtGain(gk)}</span>` : '') + `</span><span class="val"></span>`;
       const remove = () => {
         const sigs = r.sigs.slice(), hl = r.hl; r.sigs.splice(k, 1); if (r.hl === n) r.hl = null; buildRows(); redraw();
         undoToast(`Removed ${n}`, () => { r.sigs = sigs; r.hl = hl; buildRows(); redraw(); });
       };
+      c.oncontextmenu = e => { e.preventDefault(); openSigPop(c, r, n, k, remove); };
       c.onclick = e => {
-        if (e.target.closest('.sw')) return remove();
+        if (e.target.closest('.sw')) return openSigPop(c, r, n, k, remove);
         if (isLanes(r)) return;                                    // gate lanes never overlap: nothing to emphasise
         r.hl = r.hl === n ? null : n; buildRows(); redraw();
         const again = r.el && r.el.chips.querySelector(`.chip[data-sig="${CSS.escape(n)}"]`); if (again && e.detail === 0) again.focus();
@@ -859,6 +886,7 @@ function buildRows() {
     });
     if (!r.sigs.length) chips.innerHTML = '<span class="empty">Empty row: add a signal with +</span>';
     const yax = document.createElement('div'); yax.className = 'yax'; const ycv = document.createElement('canvas'); yax.appendChild(ycv);
+    if (!isLanes(r) && r.sigs.length) { yax.classList.add('set'); yax.title = 'y axis range (click)'; yax.onclick = () => openYPop(yax, r); }
     lab.append(tools, chips, yax);
     const plot = document.createElement('div'); plot.className = 'plot';
     const base = document.createElement('canvas'), top = document.createElement('canvas');
@@ -932,6 +960,87 @@ function decText(g, s, x, y) {
   const p = s.indexOf('.'), ip = p < 0 ? s : s.slice(0, p), fp = p < 0 ? '' : s.slice(p);
   tabText(g, ip, x, y, 'right'); if (fp) tabText(g, fp, x, y, 'left');
 }
+// ---------------------------------------------------------------- y axes, gains, colours (user, 2026-11-05)
+// A row's signals of the first signal's unit share the left axis; signals of another unit get a second axis on the
+// plot's right edge, with its own range (a current next to the pole voltages, both readable). A gain per signal
+// (signal menu) scales the drawn trace only, like a scope's probe factor, onto the LEFT axis: its chip says ×k, every
+// readout stays true, and the right axis only ever shows true values.
+// r.y / r.y2: ranges the user fixed (y-axis menu, Ctrl+wheel on the left axis); double-click the plot: automatic.
+const gainOf = (r, n) => (r.gain && +r.gain[n]) || 1;
+const fmtGain = k => String(+k.toPrecision(4));
+function rowAxes(r) {
+  const unit = n => (S.sig[n] && S.sig[n].unit) || '', u0 = unit(r.sigs[0]);
+  const L = { side: 'L', unit: u0, sigs: [] }, R = { side: 'R', unit: '', sigs: [] };
+  for (const n of r.sigs) {
+    const A = unit(n) === u0 || gainOf(r, n) !== 1 ? L : R; A.sigs.push(n);         // a scaled signal joins the left axis
+    if (A === R && !R.unit.split(', ').includes(unit(n))) R.unit = R.unit ? R.unit + ', ' + unit(n) : unit(n);
+  }
+  for (const [A, held] of [[L, r.y], [R, r.y2]]) {
+    if (!A.sigs.length) continue;
+    let lo = Infinity, hi = -Infinity;
+    for (const n of A.sigs) { const k = gainOf(r, n), [a, b] = range(n); lo = Math.min(lo, a * k, b * k); hi = Math.max(hi, a * k, b * k); }
+    if (!(hi > lo)) { lo -= 1; hi += 1; } const pad = 0.08 * (hi - lo);
+    [A.lo, A.hi] = held || [lo - pad, hi + pad]; A.held = !!held;
+  }
+  return { L, R: R.sigs.length ? R : null, of: n => (R.sigs.includes(n) ? R : L) };
+}
+// one small menu at a time over the waveforms: the signal menu or the y-axis menu
+function popMenu(anchor, html, wire) {
+  closePop();
+  const p = document.createElement('div'); p.className = 'cvpop'; p.setAttribute('role', 'dialog'); p.innerHTML = html;
+  document.body.appendChild(p);
+  const a = anchor.getBoundingClientRect(), pw = p.offsetWidth, ph = p.offsetHeight;
+  p.style.left = Math.round(Math.min(Math.max(8, a.left), innerWidth - pw - 8)) + 'px';
+  p.style.top = Math.round(a.bottom + 6 + ph > innerHeight - 8 ? Math.max(8, a.top - ph - 6) : a.bottom + 6) + 'px';
+  const off = e => { if (!p.contains(e.target) && !anchor.contains(e.target)) closePop(); };
+  const key = e => { if (e.key === 'Escape') { closePop(); anchor.focus && anchor.focus(); } };
+  setTimeout(() => { document.addEventListener('pointerdown', off, true); document.addEventListener('keydown', key, true); }, 0);
+  S.pop = { p, off, key };
+  wire(p);
+  const f = p.querySelector('input, button'); if (f) f.focus({ preventScroll: true });
+  return p;
+}
+function closePop() {
+  const P = S.pop; if (!P) return;
+  document.removeEventListener('pointerdown', P.off, true); document.removeEventListener('keydown', P.key, true);
+  P.p.remove(); S.pop = null;
+}
+function saveColors() { store.set(COLOR_KEY, Object.keys(userColors()).length ? userColors() : null); }
+function openSigPop(chip, r, n, k, remove) {
+  const cur = sigColor(n, k), lanes = isLanes(r), gk = gainOf(r, n);
+  const sw = TRACE_COLORS.map(c => `<button type="button" class="pc${c.toLowerCase() === String(cur).toLowerCase() ? ' on' : ''}" data-c="${c}" style="--c:${c}" aria-label="colour ${c}"></button>`).join('');
+  popMenu(chip, `<div class="ph tex">${texHTML(shortLab(n))}<span class="pn">${esc(n)}</span></div>` +
+    `<div class="pk">Colour</div><div class="pcs">${sw}</div><button type="button" class="pl" data-c="">Default colour</button>` +
+    (lanes ? '' : `<div class="pk">Scale (drawn trace only)</div><div class="prow"><span>×</span><input type="number" step="any" min="0" class="pg" value="${fmtGain(gk)}" aria-label="scale factor"><button type="button" class="pl ps">1</button></div>` +
+      `<div class="pnote">The readout and the axis keep the true value; the chip shows ×k.</div>`) +
+    `<button type="button" class="pl pr">Remove from this row</button>`, p => {
+    p.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
+      const c = b.dataset.c; if (c) userColors()[n] = c; else delete userColors()[n];
+      saveColors(); closePop(); buildRows(); redraw();
+    });
+    const g = p.querySelector('.pg');
+    const setG = v => { v = +v; r.gain = r.gain || {}; if (v > 0 && v !== 1) r.gain[n] = v; else delete r.gain[n]; buildRows(); redraw(); };
+    if (g) { g.onchange = () => setG(g.value); g.onkeydown = e => { if (e.key === 'Enter') { setG(g.value); closePop(); } }; }
+    const one = p.querySelector('.ps'); if (one) one.onclick = () => { setG(1); closePop(); };
+    p.querySelector('.pr').onclick = () => { closePop(); remove(); };
+  });
+}
+function openYPop(yax, r) {
+  const AX = rowAxes(r), dd = A => decFor(niceStep(A.lo, A.hi, 4)) + 1;
+  const sec = (A, key) => `<div class="pk">${A.side === 'L' ? 'Left' : 'Right'} axis${A.unit ? ' [' + esc(A.unit) + ']' : ''}</div>` +
+    `<div class="prow"><input type="number" step="any" data-k="${key}" data-i="0" value="${A.lo.toFixed(dd(A))}" aria-label="minimum">` +
+    `<span>to</span><input type="number" step="any" data-k="${key}" data-i="1" value="${A.hi.toFixed(dd(A))}" aria-label="maximum">` +
+    `<button type="button" class="pl pa" data-k="${key}">Auto</button></div>`;
+  popMenu(yax, sec(AX.L, 'y') + (AX.R ? sec(AX.R, 'y2') : '') +
+    '<div class="pnote">Ctrl + wheel on the plot zooms the left axis; double-click the plot: both automatic.</div>', p => {
+    const apply = key => {
+      const v = [...p.querySelectorAll(`input[data-k="${key}"]`)].map(i => +i.value);
+      if (isFinite(v[0]) && isFinite(v[1]) && v[1] > v[0]) { r[key] = v; drawRows(); }
+    };
+    p.querySelectorAll('input').forEach(i => { i.onchange = () => apply(i.dataset.k); i.onkeydown = e => { if (e.key === 'Enter') { apply(i.dataset.k); closePop(); } }; });
+    p.querySelectorAll('.pa').forEach(b => b.onclick = () => { r[b.dataset.k] = null; closePop(); drawRows(); });
+  });
+}
 function drawRows() {
   const grid = css('--grid'), slate = css('--ink-3'), faint = css('--tick'), rule = css('--rule'), lw = 1 / DPR();
   for (const r of S.rows) {
@@ -957,10 +1066,8 @@ function drawRows() {
       });
       continue;
     }
-    let lo = Infinity, hi = -Infinity; for (const n of r.sigs) { const [a, b] = range(n); lo = Math.min(lo, a); hi = Math.max(hi, b); }
-    if (!(hi > lo)) { lo -= 1; hi += 1; } const pad = 0.08 * (hi - lo); lo -= pad; hi += pad;
-    if (r.y) [lo, hi] = r.y;
-    r.yr = [lo, hi];
+    const AX = rowAxes(r), { lo, hi } = AX.L;
+    r.yr = [lo, hi]; r.yr2 = AX.R ? [AX.R.lo, AX.R.hi] : null;
     const y = v => h - (v - lo) / (hi - lo) * h;
     const nt = Math.max(2, h / 40), d = decFor(niceStep(lo, hi, nt)), ticks = niceTicks(lo, hi, nt);
     ga.font = `${css('--fs-tick')} ${NUMF_()}`; ga.textBaseline = 'middle';
@@ -972,11 +1079,24 @@ function drawRows() {
       ga.fillStyle = slate; decText(ga, fmtTick(v, d), ax, Math.min(Math.max(yy, 7), h - 7));
     }
     if (lo < 0 && hi > 0) { g.strokeStyle = css('--zero'); g.lineWidth = lw; g.beginPath(); g.moveTo(0, px(y(0))); g.lineTo(w, px(y(0))); g.stroke(); }
-    if (r.y) { ga.fillStyle = faint; ga.textAlign = 'left'; ga.textBaseline = 'top'; ga.font = `${css('--fs-tick')} ${NUMF_()}`; ga.fillText('held', 4, 4); }
-    // an emphasised signal: the others recede, it is drawn last and a little heavier
+    ga.fillStyle = faint; ga.textAlign = 'left'; ga.textBaseline = 'top'; ga.font = `${css('--fs-tick')} ${NUMF_()}`;
+    if (AX.L.held || AX.R) ga.fillText([AX.R ? AX.L.unit : '', AX.L.held ? 'held' : ''].filter(Boolean).join(' · '), 4, 4);
+    // each trace on its axis (scaled by its gain); an emphasised signal: the others recede, it is drawn last and heavier
+    const yOf = n => { const A = AX.of(n), k = gainOf(r, n); return v => h - (v * k - A.lo) / (A.hi - A.lo) * h; };
     const hl = r.hl && r.sigs.includes(r.hl) ? r.hl : null;
-    r.sigs.forEach((n, k) => { if (n === hl) return; g.globalAlpha = hl ? 0.28 : 1; drawTrace(g, n, w, y, sigColor(n, k), 1.25); });
-    g.globalAlpha = 1; if (hl) drawTrace(g, hl, w, y, sigColor(hl, r.sigs.indexOf(hl)), 1.8);
+    r.sigs.forEach((n, k) => { if (n === hl) return; g.globalAlpha = hl ? 0.28 : 1; drawTrace(g, n, w, yOf(n), sigColor(n, k), 1.25); });
+    g.globalAlpha = 1; if (hl) drawTrace(g, hl, w, yOf(hl), sigColor(hl, r.sigs.indexOf(hl)), 1.8);
+    if (AX.R) {                                                  // the second unit's axis: inside the plot's right edge
+      const R = AX.R, yr = v => h - (v - R.lo) / (R.hi - R.lo) * h, nt2 = Math.max(2, h / 40), d2 = decFor(niceStep(R.lo, R.hi, nt2));
+      g.font = `${css('--fs-tick')} ${NUMF_()}`; g.textBaseline = 'middle'; g.lineJoin = 'round';
+      const halo = (s, x, yy) => { g.strokeStyle = css('--surface'); g.lineWidth = 3; g.textAlign = 'right'; g.strokeText(s, x, yy); g.fillStyle = slate; g.fillText(s, x, yy); };
+      for (const v of niceTicks(R.lo, R.hi, nt2)) {
+        const yy = px(yr(v)); if (yy < 18 || yy > h - 1) continue;          // clear of the unit label at the top
+        g.strokeStyle = faint; g.lineWidth = lw; g.beginPath(); g.moveTo(w - 5, yy); g.lineTo(w, yy); g.stroke();
+        halo(fmtTick(v, d2), w - 8, Math.min(Math.max(yy, 7), h - 7));
+      }
+      g.textBaseline = 'top'; halo([R.unit, R.held ? 'held' : ''].filter(Boolean).join(' · '), w - 8, 4);
+    }
   }
 }
 // a short message with an Undo button over the waveforms (the plain toast of snapshot.js does not take clicks)
@@ -1294,7 +1414,7 @@ function attachPlot(plot, r) {
     const up = () => { plot.removeEventListener('pointermove', move); plot.removeEventListener('pointerup', up); };
     plot.addEventListener('pointermove', move); plot.addEventListener('pointerup', up);
   });
-  if (r) plot.addEventListener('dblclick', () => { r.y = null; r.h = null; r.el.row.style.height = rowH(r) + 'px'; redraw(); });
+  if (r) plot.addEventListener('dblclick', () => { r.y = null; r.y2 = null; r.h = null; r.el.row.style.height = rowH(r) + 'px'; redraw(); });
 }
 function attachResize(rz, r) {
   rz.addEventListener('pointerdown', e => {

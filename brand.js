@@ -44,6 +44,8 @@
     for (const b of out) { if (b.top < lo) lo = b.top; if (b.bottom > hi) hi = b.bottom; }
     out.inkH = out.length ? hi - lo : 0;
     if (legend) for (const e of legend.children) { const b = e.getBoundingClientRect(); if (b.width) out.push(b); }
+    const tsp = document.getElementById('tsp');                     // the sampling period under the drawing (svm.js)
+    if (tsp && !tsp.hidden) out.push(tsp.getBoundingClientRect());
     return out;
   }
   function place() {

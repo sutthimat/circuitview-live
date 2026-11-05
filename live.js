@@ -118,7 +118,8 @@
     host.appendChild(top);
     let items = null;
     const move = () => {
-      top.setAttribute('viewBox', C.svg.getAttribute('viewBox')); top.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      top.setAttribute('viewBox', C.svg.getAttribute('viewBox'));    // the drawing's own fit (top-pinned with the period panel)
+      top.setAttribute('preserveAspectRatio', C.svg.getAttribute('preserveAspectRatio') || 'xMidYMid meet');
       if (FLOW.items === items) return;                           // lighter() kept the drawing: the heads stay where they are
       items = FLOW.items;
       const g = C.ov.querySelector(':scope > .cv-flow-layer');
