@@ -257,15 +257,26 @@ function snapshotSVG(opts = {}) {
   if (T) body += `<text x="${W - PAD}" y="${PAD + 10}" text-anchor="end" font-family="${SNAP.UI}" font-size="17" font-weight="600" fill="${tok('--cursor')}"><tspan font-family="${SNAP.MATH}" font-style="italic" font-weight="400" fill="${slate}">t</tspan><tspan fill="${slate}" font-weight="400"> = </tspan>${(S.cur * 1e3).toFixed(4)} ms</text>`;
   const top = PAD + HEAD, avail = H - top - PAD;
   let cx, cy, cw, ch, wx, wy, ww, wh;
-  if (wide) { cx = PAD; cy = top; cw = W - 2 * PAD; ch = Math.round(avail * 0.5); wx = PAD; wy = cy + ch + 12; ww = cw; wh = H - PAD - wy; }
+  // the sampling period under the circuit (svm.js) while the pane shows it: the pane's own layout, a circuit column on
+  // the left (drawing at the top, the period under it, the legend at the foot), space vectors over the waveforms
+  const tsp = typeof tspSnapshot === 'function' && tspSnapshot.shown();
+  if (tsp) { cx = PAD; cy = top; ch = avail; cw = Math.round(W * 0.56); wx = cx + cw + 24; wy = top; ww = W - PAD - wx; wh = avail; }
+  else if (wide) { cx = PAD; cy = top; cw = W - 2 * PAD; ch = Math.round(avail * 0.5); wx = PAD; wy = cy + ch + 12; ww = cw; wh = H - PAD - wy; }
   else { cx = PAD; cy = top; ch = avail; cw = Math.min(Math.round(W * 0.56), Math.round((ch - SNAP.LEG - 30) * vb.width / vb.height) + 40); wx = cx + cw + 24; wy = top; ww = W - PAD - wx; wh = avail; }
   // space-vector panel (svm.js) while it is shown: beside the drawing (wide) or above the waveforms (tall); top layer
   const svm = typeof svmSnapshot === 'function' && svmSnapshot.shown();
   let sx0, sy0, sw0, sh0;
-  if (svm && wide) { sw0 = ch; cw -= sw0 + 16; sx0 = cx + cw + 16; sy0 = cy; sh0 = ch; }
+  if (svm && wide && !tsp) { sw0 = ch; cw -= sw0 + 16; sx0 = cx + cw + 16; sy0 = cy; sh0 = ch; }
   else if (svm) { sh0 = Math.min(Math.round(avail * 0.5), ww); sw0 = ww; sx0 = wx; sy0 = wy; wy += sh0 + 12; wh -= sh0 + 12; }
   if (T && svm) body += svmSnapshot(sx0, sy0, sw0, sh0);
-  if (T) {
+  if (T && tsp) {
+    const leg = legendSVG(cx, 0, cw), lh = leg.h + 8, foot = cy + ch - lh;
+    const g = circuitGroup(cx, cy, cw, Math.min(cw * vb.height / vb.width, Math.round((foot - cy) * 0.56)), opts.flow);
+    body += g.svg;
+    const ty = g.box[1] + g.box[3] + 18, th = Math.min(360, foot - ty - 12);
+    if (th >= 150) body += tspSnapshot(cx + Math.max(0, (cw - 760) / 2), ty, Math.min(cw, 760), th);
+    body += `<g transform="translate(0,${r2(foot + 10)})">${leg.svg}</g>`;
+  } else if (T) {
     const leg = legendSVG(cx, 0, cw), lh = leg.h + 8;
     const g = circuitGroup(cx, cy, cw, ch - lh, opts.flow);
     body += g.svg;

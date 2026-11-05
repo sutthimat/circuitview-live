@@ -278,11 +278,12 @@
     if (was !== box.style.height && window.logosPlace) setTimeout(window.logosPlace, 0);   // the logos keep clear of it
     return true;
   }
-  function tspDraw() {
-    if (!tspPlace()) return;
-    const box = tspBox, W = box.clientWidth, H = box.clientHeight, T = P.Tsp, t = S.cur;
+  // the period's picture as SVG markup in a W x H box (presentation attributes only, no CSS: the same markup serves
+  // the pane and the pictures / video frames of snapshot.js); null when the cursor has no full period
+  function tspMarkup(W, H) {
+    const T = P.Tsp, t = S.cur;
     const k = Math.floor((t - P.a0) / T), a = P.a0 + k * T, b = a + T;
-    if (!(T > 0) || a < S.t0 - 1e-12 || b > S.t1 + 1e-9) { box.innerHTML = '<div class="tsp-none">no full sampling period at the cursor</div>'; return; }
+    if (!(T > 0) || a < S.t0 - 1e-12 || b > S.t1 + 1e-9) return null;
     // segments: every switching instant of the three legs inside [a, b]
     const ts = new Set([a, b]);
     for (const f of P.fns) for (let i = Math.max(lastLE(f.t, a), 0); i < f.t.length && f.t[i] < b; i++) if (f.t[i] > a) ts.add(f.t[i]);
@@ -315,21 +316,22 @@
       return sg.x0 + (Math.min(Math.max(x, sg.t0), sg.t1) - sg.t0) / ((sg.t1 - sg.t0) || 1) * (sg.x1 - sg.x0); };
     const DUR = 14, BOXY = DUR + 2, BOXH = 22, R0 = BOXY + BOXH + 10, BOT = 28;
     let rh, pad;
-    const out = [], math = "font-family:'Times New Roman',Times,serif;font-style:italic";
+    const MF = "'Times New Roman', Times, serif", UF = "'Segoe UI', Arial, sans-serif", surf = css('--surface') || '#ffffff';
+    const out = [], math = `font-family="${MF}" font-style="italic"`;
     const us = v => v >= 1e-3 ? (v * 1e3).toFixed(2) + ' ms' : (v * 1e6).toFixed(v < 1e-6 ? 2 : v < 1e-5 ? 1 : 0) + ' µs';
     const kNow = segs.findIndex(s => t >= s.t0 && t < s.t1);
     segs.forEach((s, j) => {
       const x0 = X(s.t0), x1 = X(s.t1), lab = s.st.map(v => LET[String(v)]).join('');
       out.push(`<rect x="${x0.toFixed(1)}" y="${BOXY}" width="${(x1 - x0).toFixed(1)}" height="${BOXH}" fill="${CLS[klass(s.st)]}" stroke="${j === kNow ? ink : rule}" stroke-width="${j === kNow ? 1.6 : 1}"/>`);
-      out.push(`<text x="${((x0 + x1) / 2).toFixed(1)}" y="${BOXY + BOXH / 2 + 4}" text-anchor="middle" class="tsp-st">${lab}</text>`);
-      out.push(`<text x="${((x0 + x1) / 2).toFixed(1)}" y="${DUR - 3}" text-anchor="middle" class="tsp-dur">${us(s.t1 - s.t0)}</text>`);
+      out.push(`<text x="${((x0 + x1) / 2).toFixed(1)}" y="${BOXY + BOXH / 2 + 4}" text-anchor="middle" font-family="${MF}" font-size="13" fill="${ink}">${lab}</text>`);
+      out.push(`<text x="${((x0 + x1) / 2).toFixed(1)}" y="${DUR - 3}" text-anchor="middle" font-family="${UF}" font-size="10" fill="${ink3}">${us(s.t1 - s.t0)}</text>`);
     });
     // dotted lines at the switching instants (inside the period)
     for (const s of segs.slice(1)) out.push(`<path d="M${X(s.t0).toFixed(1)} ${BOXY}V${(H - BOT + 4).toFixed(1)}" stroke="${ink3}" stroke-width="0.8" stroke-dasharray="2 3"/>`);
     // pole voltages v_xO = s_x Vdc/2 and the common-mode voltage v_CMV = (v_aO + v_bO + v_cO)/3 = (s_a + s_b + s_c) Vdc/6
     // (its scale: the largest |sum| in the period at full height, labelled Vdc/6, Vdc/3 or Vdc/2)
     const smax = Math.max(1, ...segs.map(s => Math.abs(s.st[0] + s.st[1] + s.st[2])));
-    const frac = (n, d) => [`<tspan style="${math}">${n}</tspan>`, `<tspan font-size="8" dy="3">dc</tspan>`, `<tspan dy="-3">/${d}</tspan>`].join('');
+    const frac = (n, d) => [`<tspan ${math}>${n}</tspan>`, `<tspan font-size="8" dy="3">dc</tspan>`, `<tspan dy="-3">/${d}</tspan>`].join('');
     const rows = ['a', 'b', 'c'].map((ph, i) => ({ name: `v<tspan font-size="11" dy="4">${ph}O</tspan>`, col: col(i), val: s => s.st[i],
       ticks: [[1, frac('V', 2)], [0, '0'], [-1, frac('−V', 2)]] }));
     rows.push({ name: `v<tspan font-size="11" dy="4">CMV</tspan>`, col: ink3, val: s => (s.st[0] + s.st[1] + s.st[2]) / smax,
@@ -337,8 +339,8 @@
     rh = (H - R0 - BOT) / rows.length; pad = Math.max(8, rh * 0.24);
     rows.forEach((R, i) => {
       const y0 = R0 + i * rh, yz = y0 + rh / 2, amp = rh / 2 - pad, Y = v => yz - v * amp, c = R.col;
-      out.push(`<text x="${NAMEW - 6}" y="${yz + 5}" text-anchor="end" style="${math};font-size:16px" fill="${ink}">${R.name}</text>`);
-      for (const [v, lab] of R.ticks) out.push(`<text x="${X0 - 6}" y="${Y(v) + 4}" text-anchor="end" class="tsp-tick">${lab}</text>`);
+      out.push(`<text x="${NAMEW - 6}" y="${yz + 5}" text-anchor="end" ${math} font-size="16" fill="${ink}">${R.name}</text>`);
+      for (const [v, lab] of R.ticks) out.push(`<text x="${X0 - 6}" y="${Y(v) + 4}" text-anchor="end" font-family="${UF}" font-size="10" fill="${ink3}">${lab}</text>`);
       out.push(`<path d="M${X0} ${yz}H${X1}" stroke="${rule}" stroke-width="1"/>`);
       let d = '', area = '';
       segs.forEach((s, j) => {
@@ -353,11 +355,21 @@
     const yb = H - BOT + 14;
     out.push(`<path d="M${X0} ${yb - 6}V${yb + 6}M${X1} ${yb - 6}V${yb + 6}M${X0 + 1} ${yb}H${X1 - 1}" stroke="${ink3}" stroke-width="1"/>`,
       `<path d="M${X0 + 1} ${yb}l6 -3v6zM${X1 - 1} ${yb}l-6 -3v6z" fill="${ink3}"/>`,
-      `<rect x="${(X0 + X1) / 2 - 18}" y="${yb - 9}" width="36" height="18" fill="var(--surface)"/>`,
-      `<text x="${(X0 + X1) / 2}" y="${yb + 5}" text-anchor="middle" style="${math};font-size:15px" fill="${ink}">T<tspan font-size="10" dy="3">sp</tspan></text>`);
+      `<rect x="${(X0 + X1) / 2 - 18}" y="${yb - 9}" width="36" height="18" fill="${surf}"/>`,
+      `<text x="${(X0 + X1) / 2}" y="${yb + 5}" text-anchor="middle" ${math} font-size="15" fill="${ink}">T<tspan font-size="10" dy="3">sp</tspan></text>`);
     out.push(`<path d="M${X(t).toFixed(1)} ${BOXY - 2}V${(H - BOT + 4).toFixed(1)}" stroke="${cur}" stroke-width="1.2"/>`);
-    box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="sampling period at the cursor: states and pole voltages">${out.join('')}</svg>`;
+    return out.join('');
   }
+  function tspDraw() {
+    if (!tspPlace()) return;
+    const box = tspBox, W = box.clientWidth, H = box.clientHeight, m = tspMarkup(W, H);
+    box.innerHTML = m === null ? '<div class="tsp-none">no full sampling period at the cursor</div>' :
+      `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="sampling period at the cursor: states and pole voltages">${m}</svg>`;
+  }
+  // pictures and video frames (snapshot.js): the period in the box (x, y, w, h) of the page, when the pane shows it
+  window.tspSnapshot = (x, y, w, h) => { const m = tspMarkup(w, h); return m === null ? '' : `<g transform="translate(${x.toFixed(2)},${y.toFixed(2)})">${m}</g>`; };
+  window.tspSnapshot.shown = () => !!(P.ok && tspOn() && tspBox && !tspBox.hidden);
+
   window.tspRedraw = tspDraw;
   { let tm = 0; const c = document.getElementById('circ');      // a resized pane: place and draw the period again
     if (c && window.ResizeObserver) new ResizeObserver(() => { clearTimeout(tm); tm = setTimeout(() => { if (P.ok) tspDraw(); }, 60); }).observe(c); }
