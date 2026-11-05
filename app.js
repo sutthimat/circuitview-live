@@ -26,7 +26,7 @@ function legendItems(J) {
     ...(J.np_node ? [['ring', '--gold', np ? 'through {' + np + '}' : 'through the neutral point']] : []),
     ...((J.srcs || []).length ? [['arrow', '--dc', 'dc current']] : []),
     ...((J.caps || []).length ? [['line', '--gold', J.np_node && np ? 'current at {' + np + '}' : 'capacitor current'], ['chg', '--np-ink', 'charging / discharging']] : []),
-    ['iref', '--ink-2', 'reference direction ({i_x} > 0)'],          // the i_x arrows beside the output wires
+    ['iref', '--ink-2', 'direction of {i_x} at the cursor'],          // the i_x arrows beside the output wires
     ['note', '', 'width ∝ |{i}|']];
 }
 function legendHTML(J) {
@@ -232,6 +232,23 @@ function syncSettings() {
 // the words Charging / Discharging beside each dc-link capacitor, read upward in the gap above its plates (default on)
 const CAPW_KEY = 'circuitview.capwords';
 function capWords() { return store.get(CAPW_KEY) !== false; }
+// the drawing's label of capacitor id (a <text> reading e.g. C1), found once per circuit
+function capName(C, id) {
+  if (!C.capNames) C.capNames = {};
+  if (!(id in C.capNames)) C.capNames[id] = [...C.svg.querySelectorAll('text')].find(t => t.textContent.replace(/\s/g, '') === id) || null;
+  return C.capNames[id];
+}
+// what the capacitor words keep clear of: the drawing's text labels and the place of the i_O arrow + label (np_jog)
+function capObstacles(C, K) {
+  if (!C.capObs) {
+    C.capObs = [...C.svg.querySelectorAll(':scope > :not(#cv-overlay) text')].map(t => { const b = t.getBBox(); return { x: b.x, y: b.y, w: b.width, h: b.height }; });
+    if (C.J.np_jog) {
+      const [[xa, y0], [xb]] = C.J.np_jog, y = y0 - 7 * K / 0.75, hw = (2.8 * K) / 2 + 1.6 * K;
+      C.capObs.push({ x: xa, y: y - hw - 2.6 * K / 0.75 - 7, w: xb - xa, h: 7 + 2.6 * K / 0.75 + 2 * hw });
+    }
+  }
+  return C.capObs;
+}
 // length of the longer word in em of the drawing's text face (measured once)
 function capwEm() {
   if (!capwEm.v) { const c = document.createElement('canvas').getContext('2d'); c.font = '100px "Times New Roman", Times, serif'; capwEm.v = c.measureText('Discharging').width / 100; }
@@ -244,37 +261,22 @@ const PLACE_ICON = {
   capw: '<path d="M12 2v7M5 9h14M5 13h14M12 13v7M29 18V4M26 7l3-3 3 3M38 4v14M35 15l3 3 3-3"/>',
 };
 
-// The drawing's label i_x beside each reference arrow gets the sign of i_x at the cursor: "i_a > 0" / "i_a < 0"
-// (|i| < i_eps: plain i_a). The arrow stays the reference direction, so "< 0" reads as "flowing against the arrow".
-// The label is the <text> reading i_x nearest to the arrow_i symbol of that leg.
-function isignLabels(C, legs) {
-  if (!C.ilabs) {
-    C.ilabs = {};
-    const texts = [...C.svg.querySelectorAll('text')];
+// The drawn i_x arrow beside each output wire turns to the direction the current flows at the cursor (user, 2026-11-05:
+// a fixed reference arrow next to a current flowing the other way confused readers). |i| < i_eps: the drawn direction.
+// The flip is a mirror along the arrow's own axis, about the middle of its drawing, so it stays in place.
+function iArrows(C, legs) {
+  if (!C.iarr) {
+    C.iarr = {};
     for (const { L } of legs) {
-      const ar = C.svg.querySelector(`[data-sym="arrow_i"][data-key="i${L.x}"]`); if (!ar) continue;
-      const b = ar.getBBox(), m = ar.transform.baseVal.consolidate(), ax = b.x + (m ? m.matrix.e : 0), ay = b.y + (m ? m.matrix.f : 0);
-      let best = null, bd = Infinity;
-      for (const t of texts) {
-        if (t.textContent.replace(/\s/g, '') !== 'i' + L.x) continue;
-        const d = Math.hypot(+t.getAttribute('x') - ax, +t.getAttribute('y') - ay);
-        if (d < bd) { bd = d; best = t; }
-      }
-      // centred over its arrow: the longer "i_x > 0" grows to both sides (to the right alone it reaches the jog of the
-      // output wire when the load is to the right)
-      if (best) { C.ilabs[L.x] = best; best.setAttribute('x', +(ax + b.width / 2).toFixed(3)); best.setAttribute('text-anchor', 'middle'); }
+      const el = C.svg.querySelector(`[data-sym="arrow_i"][data-key="i${L.x}"]`); if (!el) continue;
+      const b = el.getBBox();
+      C.iarr[L.x] = { el, base: el.getAttribute('transform') || '', cx: b.x + b.width / 2 };
     }
   }
   for (const { L, st } of legs) {
-    const t = C.ilabs[L.x]; if (!t) continue;
-    t.querySelectorAll('.cv-isign').forEach(e => e.remove());
-    if (st.sign === '0') continue;
-    const sub = t.querySelectorAll('tspan')[1], big = t.querySelector('tspan');
-    const sp = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-    sp.setAttribute('class', 'cv-isign'); sp.setAttribute('font-size', big ? big.getAttribute('font-size') : '8.35');
-    sp.setAttribute('font-style', 'normal'); if (sub && sub.getAttribute('dy')) sp.setAttribute('dy', -parseFloat(sub.getAttribute('dy')));
-    sp.textContent = (st.sign === '+' ? ' > 0' : ' < 0');    // relation with a four-per-em space each side
-    t.appendChild(sp);
+    const a = C.iarr[L.x]; if (!a) continue;
+    a.el.setAttribute('transform', a.base + (st.sign === '-' ? ` translate(${+(2 * a.cx).toFixed(3)},0) scale(-1,1)` : ''));
+    a.el.setAttribute('data-dir', st.sign === '-' ? 'reversed' : 'drawn');
   }
 }
 // ---------------------------------------------------------------- circuit state at the cursor
@@ -514,7 +516,7 @@ function drawCircuit() {
   if (devLayer && C.ov.nextElementSibling !== devLayer) C.svg.insertBefore(C.ov, devLayer);
   if (!C.arrowSyms) C.arrowSyms = arrowSymbols(C.svg);
   const legs = C.legs.map(L => ({ L, st: legState(L, S.cur) }));
-  isignLabels(C, legs);
+  iArrows(C, legs);
   const mk = (tag, cls, attrs) => { const p = document.createElementNS(NS, tag); p.setAttribute('class', cls); for (const k in attrs) p.setAttribute(k, attrs[k]); C.ov.appendChild(p); return p; };
   // dc-link capacitors: the branch current in gold (the neutral-point colour), width ∝ |i| on the legs' scale, one
   // arrowhead per wire piece in the current direction, the symbol lit; beside it ↑ charging (v_C rising) / ↓ discharging.
@@ -546,22 +548,36 @@ function drawCircuit() {
     if (sym) sym.classList.toggle('cv-cap-on', cs.sign !== '0');
     if (cs.sign === '0') continue;
     branch('cap', cs.c.id, cs.c.pieces, cs.sign, cs.i, gold);
-    // charge arrow: shaft + open head (a different glyph from the filled current arrowheads), up = charging
+    // charge arrow: shaft + open head (a different glyph from the filled current arrowheads), up = charging = v_C rising.
+    // Words on (Settings): the word Charging / Discharging takes the arrow's place beside the plates, read upward, and the
+    // arrow moves above the capacitor's name with the voltage it describes (v_C1 ↑), so it is not read as a current
     const [mx, my] = cs.c.mark, hw = cs.c.mark_w / 2, hh = (cs.c.mark_h || 4.4) / 2, up = cs.sign === '+', s = up ? -1 : 1;
-    const r3 = v => +v.toFixed(3), tip = my + s * hh;
-    mk('path', 'cv-cap-mark', { d: `M${r3(mx)},${r3(my - s * hh)}L${r3(mx)},${r3(tip)}M${r3(mx - hw)},${r3(tip - s * hw)}L${r3(mx)},${r3(tip)}L${r3(mx + hw)},${r3(tip - s * hw)}`,
+    const r3 = v => +v.toFixed(3);
+    const arrow = (ax, ay) => mk('path', 'cv-cap-mark', { d: `M${r3(ax)},${r3(ay - s * hh)}L${r3(ax)},${r3(ay + s * hh)}M${r3(ax - hw)},${r3(ay + s * hh - s * hw)}L${r3(ax)},${r3(ay + s * hh)}L${r3(ax + hw)},${r3(ay + s * hh - s * hw)}`,
       stroke: markInk, 'stroke-width': 0.6 * K / 0.75, 'data-cap': cs.c.id, 'data-dir': up ? 'up' : 'down' });
-    // the word, read upward in the mark's column, centred in the gap between the branch's top node and the mark
-    // (clear of the lit rows at both ends); at most 4.6, the longer word filling at most 95 % of the gap
-    const pc = cs.c.pieces[0], top = pc[0], bot = pc[pc.length - 1];
-    if (capWords() && Math.abs(top[0] - bot[0]) < 1e-6 && bot[1] > top[1]) {
-      const g0 = top[1] + 2.6 * K / 0.75, g1 = my - hh - 1.0 * K / 0.75, cy = (g0 + g1) / 2;
-      const lab = mk('text', 'cv-cap-word', { x: 0, y: 0, transform: `translate(${r3(mx)},${r3(cy)}) rotate(-90)`, 'text-anchor': 'middle',
-        'dominant-baseline': 'central', fill: markInk, 'data-cap': cs.c.id });
-      lab.textContent = up ? 'Charging' : 'Discharging';
-      const fs = Math.min(4.6, 0.95 * (g1 - g0) / capwEm());
-      lab.setAttribute('font-size', r3(fs));
-    }
+    const pc = cs.c.pieces, top = pc[0][0], bot = pc[pc.length - 1][pc[pc.length - 1].length - 1];
+    const name = capWords() && Math.abs(top[0] - bot[0]) < 1e-6 && capName(C, cs.c.id);
+    if (!name) { arrow(mx, my); continue; }
+    // the word: in the arrow's column, centred on the plates when it fits, kept clear of the lit rows at both nodes, of
+    // the drawing's labels in that column and of the i_O arrow + label beside the O jog (shown or not, so it never jumps)
+    const m = 2.6 * K / 0.75, L46 = 4.6 * capwEm();
+    let lo = top[1] + m, hi = bot[1] - m;
+    const col = [mx - 3, mx + 3], keep = b => b.x < col[1] && b.x + b.w > col[0];
+    const boxes = capObstacles(C, K);
+    for (const b of boxes) if (keep(b)) { if (b.y + b.h <= my) lo = Math.max(lo, b.y + b.h + 1); else if (b.y >= my) hi = Math.min(hi, b.y - 1); }
+    const cy = hi - lo >= L46 ? Math.min(Math.max(my, lo + L46 / 2), hi - L46 / 2) : (lo + hi) / 2;
+    const lab = mk('text', 'cv-cap-word', { x: 0, y: 0, transform: `translate(${r3(mx)},${r3(cy)}) rotate(-90)`, 'text-anchor': 'middle',
+      'dominant-baseline': 'central', fill: markInk, 'data-cap': cs.c.id });
+    lab.textContent = up ? 'Charging' : 'Discharging';
+    lab.setAttribute('font-size', r3(Math.min(4.6, 0.95 * (hi - lo) / capwEm())));
+    // v_C and its arrow above the name, the pair centred on it, in the drawing's math face
+    const nb = name.getBBox(), big = 8.35, small = 4.843, base = nb.y - 1.2 - small * 0.75;
+    const v = mk('text', 'cv-cap-v', { x: 0, y: r3(base), fill: markInk, 'data-cap': cs.c.id });
+    v.innerHTML = `<tspan font-size="${big}" font-style="italic">v</tspan><tspan font-size="${small}" dy="${r3(small * 0.52)}">` +
+      cs.c.id.replace(/(\D+)|(\d+)/g, (q, l, d) => l ? `<tspan font-style="italic">${l}</tspan>` : d) + '</tspan>';   // C italic, 1 upright, as the name
+    const vw = v.getBBox().width, gap = 0.9, x0 = nb.x + nb.width / 2 - (vw + gap + 2 * hw) / 2;
+    v.setAttribute('x', r3(x0));
+    arrow(x0 + vw + gap + hw, base - big * 0.3);
   }
   let npAny = false;
   const drawn = [];

@@ -407,6 +407,7 @@ kbd { display: inline-block; height: 18px; padding: 0 6px; border-radius: 4px; b
 #svghost .cv-cap-on path { stroke: var(--gold) !important; }
 #svghost .cv-cap-mark { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 #svghost .cv-cap-word { font-family: "Times New Roman", Times, serif; font-style: normal; }   /* Charging / Discharging, upright */
+#svghost .cv-cap-v { font-family: "Times New Roman", Times, serif; }   /* v_C1 above the capacitor name, beside its charge arrow */
 /* dc source branch (ink); load parts lit in their leg colour, the line kept out of their bodies by a paper patch */
 #svghost .cv-src, #svghost .cv-src-case { fill: none; stroke-linecap: butt; stroke-linejoin: round; }
 #svghost .cv-src-case { stroke: #ffffff; }
