@@ -112,14 +112,16 @@ async function openRunNow(id, seq) {
   buildRows(); redraw();
 }
 function defaultRows(sig = S.sig) {
-  // generic: first pole voltage, the leg currents of the circuit, the dc-link voltages, the gates of the first leg,
-  // the neutral-point current (rows that would be empty are dropped)
+  // generic: first pole voltage, the leg currents of the circuit, the dc-link voltages, the neutral-point voltage
+  // v_d = v_C1 - v_C2 (its own row: its scale is a few volts; user, 2026-11-05), the gates of the first leg, the
+  // neutral-point current (rows that would be empty are dropped)
   const all = Object.values(sig), grp = g => all.filter(s => s.group === g).map(s => s.name);
   const legs = S.circ ? S.circ.legs : [];
   const r = [
     grp('pole voltage').slice(0, 1),
     legs.length ? legs.map(L => L.current).filter(n => sig[n]) : grp('current').slice(0, 4),
     grp('dc link').filter(n => n !== 'v_d').slice(0, 2),
+    ['v_d'].filter(n => sig[n]),
     legs.length ? legs[0].gates.filter(n => sig[n]) : [],
     ['i_O'].filter(n => sig[n]),
   ];
