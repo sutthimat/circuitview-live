@@ -583,6 +583,22 @@ function drawCircuit() {
     for (const N of ns) mk('path', 'cv-net', { d: N.d, 'data-pts': N.dp, stroke: N.col, 'stroke-width': N.w, 'data-net': N.net_name, 'data-i': N.net.toFixed(6), 'data-legs': N.users.join('') });
   };
   layers('d', false); layers('dh', true);
+  // a hop on a wire that carries no lit current: the drawing's own arc lies under the overlay, so a lit leg crossing
+  // it would cover the arc. Repaint that arc on top (paper case, then the wire in the drawing's wire colour)
+  const litBy = test => drawn.some(D => D.parts.some((p, j) => !D.inner[j] && test(p))) || chains.some(N => test(N.pts));
+  const wireEl = C.svg.querySelector('.layer-wire path'), wireCol = wireEl ? getComputedStyle(wireEl).stroke : '#000';
+  for (const h of hops) {
+    const x0 = Math.min(h.p0[0], h.p1[0]), x1 = Math.max(h.p0[0], h.p1[0]), y = h.p0[1];
+    const step = (pts, f) => pts.some((p, k) => k > 0 && f(pts[k - 1], p));
+    const row = pts => step(pts, (a, b) => Math.abs(a[1] - y) < tol && Math.abs(b[1] - y) < tol &&
+      Math.min(a[0], b[0]) <= x0 + 1e-6 && Math.max(a[0], b[0]) >= x1 - 1e-6);
+    const cross = pts => step(pts, (a, b) => Math.abs(a[0] - b[0]) < 1e-6 && a[0] > x0 && a[0] < x1 &&
+      Math.min(a[1], b[1]) < y - 1e-6 && Math.max(a[1], b[1]) > y + 1e-6);
+    if (litBy(row) || !litBy(cross)) continue;                     // lit arc already on top / nothing lit under it
+    const arc = `A${(x1 - x0) / 2} ${h.rise} 0 0 ${h.up !== false ? 1 : 0} ${x1},${y}`, s = 1.5 * K;
+    mk('path', 'cv-hop-case', { d: `M${x0},${y}` + arc, 'stroke-width': 2.2 * K });
+    mk('path', 'cv-hop', { d: `M${x0 - s},${y}L${x0},${y}` + arc + `L${x1 + s},${y}`, stroke: wireCol, 'stroke-width': K });
+  }
   // load parts: lit in the leg colour while their leg conducts; the line stops at the part's body (a paper patch over
   // the body, wide enough for the widest underlay), so the lit zigzag / coil itself carries the current
   const lit = new Map(legs.map(({ L, st }) => [L.x, st.sign !== '0' && st.path.length ? legColor(L) : null]));

@@ -397,6 +397,9 @@ kbd { display: inline-block; height: 18px; padding: 0 6px; border-radius: 4px; b
 #svghost .cv-path { fill: none; visibility: hidden; }   /* per-leg record on the table geometry; lanes are painted */
 #svghost .cv-arrow { stroke: none; }
 #svghost .cv-path-case { fill: none; stroke: #ffffff; stroke-linecap: round; stroke-linejoin: round; }
+/* a hop of an unlit wire, repainted above the lit legs that cross it */
+#svghost .cv-hop-case { fill: none; stroke: #ffffff; stroke-linecap: butt; }
+#svghost .cv-hop { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 #svghost .cv-np-ring { fill: none; stroke: var(--gold); }
 /* dc-link capacitors: branch current in gold, the lit symbol, the charge mark (▲ charging, ▼ discharging) */
 #svghost .cv-cap, #svghost .cv-cap-case { fill: none; stroke-linecap: butt; }   /* butt: never into the plate gap */
