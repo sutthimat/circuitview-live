@@ -1489,7 +1489,7 @@ function wireSplit() {
     sb.setAttribute('aria-expanded', 'true'); const c = sm.querySelector('input:checked') || sm.querySelector('input:not(:disabled)'); if (c) c.focus({ preventScroll: true });
   };
   S.closeSet = closeSet;
-  sb.hidden = !!EMB;                                               // an exported file carries one drawing only
+  // an exported file shows it too: a single-run file lists its one drawing, a multi-run file every drawing (choices in S)
   sb.onclick = e => { e.stopPropagation(); if (sm.hidden) openSet(); else closeSet(); };
   addEventListener('click', e => { if (!sm.hidden && !sm.contains(e.target)) closeSet(); });
   addEventListener('keydown', e => { if (e.key === 'Escape' && !sm.hidden) { closeSet(); sb.focus(); } });
