@@ -218,18 +218,30 @@ function syncSettings() {
   pb.querySelectorAll('input').forEach(r => { r.onchange = () => { if (r.checked) setLoadPlace(r.value); }; });
   if (pf) { const c = pb.querySelector('input:checked'); if (c) c.focus({ preventScroll: true }); }
   // circuit pane: the sampling period at the cursor under the drawing (svm.js; three-level runs)
-  const ob = $('#paneopts');
-  if (ob && typeof window.tspSetting === 'function') {
-    const on = window.tspSetting(), ok = document.documentElement.classList.contains('has-svm');
-    ob.innerHTML = `<label class="${on && ok ? 'on' : ''}${ok ? '' : ' off'}"><input type="checkbox" id="tspchk"${on ? ' checked' : ''}${ok ? '' : ' disabled'}${ok ? '' : ' aria-describedby="tsp-na"'}>` +
-      `<svg viewBox="0 0 46 22" aria-hidden="true">${PLACE_ICON.tsp}</svg><span class="lnm">Sampling period under the circuit</span>${ok ? '' : '<span class="dflt" id="tsp-na">3-level runs</span>'}</label>`;
-    $('#tspchk').onchange = e => { window.tspSetting(e.target.checked); syncSettings(); };
-  } else if (ob) { ob.hidden = true; ob.previousElementSibling.hidden = true; }   // no svm.js on this page
+  const ob = $('#paneopts'); if (!ob) return;
+  const opt = (id, on, ok, icon, nm, na) => `<label class="${on && ok ? 'on' : ''}${ok ? '' : ' off'}"><input type="checkbox" id="${id}"${on ? ' checked' : ''}${ok ? '' : ` disabled aria-describedby="${id}-na"`}>` +
+    `<svg viewBox="0 0 46 22" aria-hidden="true">${icon}</svg><span class="lnm">${nm}</span>${ok ? '' : `<span class="dflt" id="${id}-na">${na}</span>`}</label>`;
+  const hasTsp = typeof window.tspSetting === 'function';                 // no svm.js on this page: no Tsp option
+  const capsOk = !!(S.circ && (S.circ.J.caps || []).length);
+  ob.innerHTML = (hasTsp ? opt('tspchk', window.tspSetting(), document.documentElement.classList.contains('has-svm'), PLACE_ICON.tsp,
+    'Sampling period under the circuit', '3-level runs') : '') +
+    opt('capwchk', capWords(), capsOk, PLACE_ICON.capw, 'Charging / Discharging', 'no dc-link capacitors');
+  if (hasTsp) $('#tspchk').onchange = e => { window.tspSetting(e.target.checked); syncSettings(); };
+  $('#capwchk').onchange = e => { store.set(CAPW_KEY, e.target.checked); syncSettings(); if (S.circ) drawCircuit(); };
+}
+// the words Charging / Discharging beside each dc-link capacitor, read upward in the gap above its plates (default on)
+const CAPW_KEY = 'circuitview.capwords';
+function capWords() { return store.get(CAPW_KEY) !== false; }
+// length of the longer word in em of the drawing's text face (measured once)
+function capwEm() {
+  if (!capwEm.v) { const c = document.createElement('canvas').getContext('2d'); c.font = '100px "Times New Roman", Times, serif'; capwEm.v = c.measureText('Discharging').width / 100; }
+  return capwEm.v;
 }
 const PLACE_ICON = {
   below: '<rect x="3" y="2" width="22" height="9" rx="1"/><path d="M9 11v9M14 11v9M19 11v9"/>',
   right: '<rect x="3" y="4" width="18" height="14" rx="1"/><path d="M21 8h22M21 11h22M21 14h22"/>',
   tsp: '<rect x="3" y="2" width="40" height="7" rx="1"/><path d="M3 15h8v-3h10v3h10v-3h12M3 20h40"/>',
+  capw: '<path d="M12 2v7M5 9h14M5 13h14M12 13v7M29 18V4M26 7l3-3 3 3M38 4v14M35 15l3 3 3-3"/>',
 };
 
 // ---------------------------------------------------------------- circuit state at the cursor
@@ -505,6 +517,17 @@ function drawCircuit() {
     const r3 = v => +v.toFixed(3), tip = my + s * hh;
     mk('path', 'cv-cap-mark', { d: `M${r3(mx)},${r3(my - s * hh)}L${r3(mx)},${r3(tip)}M${r3(mx - hw)},${r3(tip - s * hw)}L${r3(mx)},${r3(tip)}L${r3(mx + hw)},${r3(tip - s * hw)}`,
       stroke: markInk, 'stroke-width': 0.6 * K / 0.75, 'data-cap': cs.c.id, 'data-dir': up ? 'up' : 'down' });
+    // the word, read upward in the mark's column, centred in the gap between the branch's top node and the mark
+    // (clear of the lit rows at both ends); at most 4.6, the longer word filling at most 95 % of the gap
+    const pc = cs.c.pieces[0], top = pc[0], bot = pc[pc.length - 1];
+    if (capWords() && Math.abs(top[0] - bot[0]) < 1e-6 && bot[1] > top[1]) {
+      const g0 = top[1] + 2.6 * K / 0.75, g1 = my - hh - 1.0 * K / 0.75, cy = (g0 + g1) / 2;
+      const lab = mk('text', 'cv-cap-word', { x: 0, y: 0, transform: `translate(${r3(mx)},${r3(cy)}) rotate(-90)`, 'text-anchor': 'middle',
+        'dominant-baseline': 'central', fill: markInk, 'data-cap': cs.c.id });
+      lab.textContent = up ? 'Charging' : 'Discharging';
+      const fs = Math.min(4.6, 0.95 * (g1 - g0) / capwEm());
+      lab.setAttribute('font-size', r3(fs));
+    }
   }
   let npAny = false;
   const drawn = [];
