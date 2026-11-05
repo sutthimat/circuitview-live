@@ -136,7 +136,8 @@ async function openCircuit(name) {
   // load symbol (Settings): circuit.json is the default drawing and lists the others (legcells.finish, load)
   // and placement (below the inverter / to its right): circuit.json lists every drawing (style x placement)
   if (J.load) {
-    const want = S.loadStyle || store.get(LOAD_KEY), place = S.loadPlace || store.get(PLACE_KEY) || 'below';
+    const pref = (EMB && EMB.prefs) || {};                         // a shared file may open on another drawing than 'below'
+    const want = S.loadStyle || store.get(LOAD_KEY) || pref.load, place = S.loadPlace || store.get(PLACE_KEY) || pref.place || 'below';
     const ent = (J.load.styles || []).find(s => s.id === want) || (J.load.styles || []).find(s => s.id === J.load.style);
     const file = ent && (place === 'right' && ent.file_right ? ent.file_right : ent.file);
     if (file && file !== 'circuit.json') { try { J = await getJSON(`circuits/${name}/${file}`); } catch (e) { /* not there: the default drawing */ } }
