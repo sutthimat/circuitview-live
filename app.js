@@ -555,19 +555,21 @@ function drawCircuit() {
     const pts = id.path.map(a => typeof a === 'string' ? C.anchors[subst(a, L.x)] : a).filter(Boolean);
     if (pts.length > 1) mk('path', 'cv-path-idle', { d: pathD(pts, hops), 'data-pts': polyD(pts), stroke: legColor(L), 'data-leg': L.x, 'data-rail': id.rail || '' });
   }
-  // a part that jumps a hop is painted after every other part (its own underlay, case and lane last), so the wire it
-  // jumps over lies BEHIND the arc, as in the drawing (user, 2026-11-05)
+  // the straight step that jumps a hop is painted again after every other part (case and lane last), so the wire it
+  // jumps over lies BEHIND the arc, as in the drawing (user, 2026-11-05). Only that step goes on top: the rest of its
+  // part may itself cross another leg's hop (load to the right: a leg's drop crosses the row of the leg before it)
   const arcs = d => /A/.test(d);
   for (const D of drawn) {
-    const outer = D.parts.filter((p, j) => !D.inner[j]).map(p => pathD(p, hops, tol));
-    D.d = outer.filter(d => !arcs(d)).join(''); D.dh = outer.filter(arcs).join('');
+    const outer = D.parts.filter((p, j) => !D.inner[j]);
+    D.d = outer.map(p => pathD(p, hops, tol)).join('');
+    D.dh = outer.flatMap(p => p.slice(1).map((q, k) => pathD([p[k], q], hops, tol)).filter(arcs)).join('');
     D.di = D.parts.filter((p, j) => D.inner[j]).map(p => pathD(p, hops, tol)).join('');
     D.wi = Math.min(D.w, 1.25 * K); D.dp = polyD(D.pts);
   }
   for (const N of chains) { N.d = pathD(N.pts, hops, tol); N.dp = polyD(N.pts); N.hop = arcs(N.d); }
   const layers = (dk, hop) => {
     const ds = drawn.filter(D => D[dk]), ns = chains.filter(N => !!N.hop === hop);
-    for (const D of ds) mk('path', 'cv-path-under', { d: D[dk], 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w + 2.2 * K });
+    if (!hop) for (const D of ds) mk('path', 'cv-path-under', { d: D[dk], 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w + 2.2 * K });   // once: it is translucent
     for (const D of ds) if (D.st.np) mk('path', 'cv-path-np', { d: D[dk], 'data-pts': D.dp, 'stroke-width': D.w + 1.5 * K });
     for (const N of ns) mk('path', 'cv-path-under', { d: N.d, 'data-pts': N.dp, stroke: N.col, 'stroke-width': N.w + 2.2 * K });
     for (const D of ds) mk('path', 'cv-path-case', { d: D[dk], 'data-pts': D.dp, 'stroke-width': D.w + 0.9 * K });

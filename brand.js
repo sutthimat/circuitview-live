@@ -68,8 +68,10 @@
     }
   }
   // after the layout settles: a new circuit, a panel shown or hidden, a splitter drag, the window resized
-  let tm = 0;
-  const later = () => { clearTimeout(tm); tm = setTimeout(place, 120); };
+  // placed again 0.9 s after the last change: a page still laying out (an exported file opening, a slow first paint,
+  // a headless capture) can measure the drawing before its final size (Anwa trial: logos over the P rail)
+  let tm = 0, tm2 = 0;
+  const later = () => { clearTimeout(tm); clearTimeout(tm2); tm = setTimeout(place, 120); tm2 = setTimeout(place, 900); };
   const ro = new ResizeObserver(later); ro.observe(circ); ro.observe(host);
   const mo = new MutationObserver(later); mo.observe(host, { childList: true });
   if (legend) { mo.observe(legend, { childList: true }); ro.observe(legend); }   // the legend may wrap to two lines
