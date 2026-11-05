@@ -244,6 +244,39 @@ const PLACE_ICON = {
   capw: '<path d="M12 2v7M5 9h14M5 13h14M12 13v7M29 18V4M26 7l3-3 3 3M38 4v14M35 15l3 3 3-3"/>',
 };
 
+// The drawing's label i_x beside each reference arrow gets the sign of i_x at the cursor: "i_a > 0" / "i_a < 0"
+// (|i| < i_eps: plain i_a). The arrow stays the reference direction, so "< 0" reads as "flowing against the arrow".
+// The label is the <text> reading i_x nearest to the arrow_i symbol of that leg.
+function isignLabels(C, legs) {
+  if (!C.ilabs) {
+    C.ilabs = {};
+    const texts = [...C.svg.querySelectorAll('text')];
+    for (const { L } of legs) {
+      const ar = C.svg.querySelector(`[data-sym="arrow_i"][data-key="i${L.x}"]`); if (!ar) continue;
+      const b = ar.getBBox(), m = ar.transform.baseVal.consolidate(), ax = b.x + (m ? m.matrix.e : 0), ay = b.y + (m ? m.matrix.f : 0);
+      let best = null, bd = Infinity;
+      for (const t of texts) {
+        if (t.textContent.replace(/\s/g, '') !== 'i' + L.x) continue;
+        const d = Math.hypot(+t.getAttribute('x') - ax, +t.getAttribute('y') - ay);
+        if (d < bd) { bd = d; best = t; }
+      }
+      // centred over its arrow: the longer "i_x > 0" grows to both sides (to the right alone it reaches the jog of the
+      // output wire when the load is to the right)
+      if (best) { C.ilabs[L.x] = best; best.setAttribute('x', +(ax + b.width / 2).toFixed(3)); best.setAttribute('text-anchor', 'middle'); }
+    }
+  }
+  for (const { L, st } of legs) {
+    const t = C.ilabs[L.x]; if (!t) continue;
+    t.querySelectorAll('.cv-isign').forEach(e => e.remove());
+    if (st.sign === '0') continue;
+    const sub = t.querySelectorAll('tspan')[1], big = t.querySelector('tspan');
+    const sp = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+    sp.setAttribute('class', 'cv-isign'); sp.setAttribute('font-size', big ? big.getAttribute('font-size') : '8.35');
+    sp.setAttribute('font-style', 'normal'); if (sub && sub.getAttribute('dy')) sp.setAttribute('dy', -parseFloat(sub.getAttribute('dy')));
+    sp.textContent = (st.sign === '+' ? ' > 0' : ' < 0');    // relation with a four-per-em space each side
+    t.appendChild(sp);
+  }
+}
 // ---------------------------------------------------------------- circuit state at the cursor
 function legState(L, t) {
   const g = L.gates.map(n => Math.round(valueAt(n, t))), key = g.join('');
@@ -481,6 +514,7 @@ function drawCircuit() {
   if (devLayer && C.ov.nextElementSibling !== devLayer) C.svg.insertBefore(C.ov, devLayer);
   if (!C.arrowSyms) C.arrowSyms = arrowSymbols(C.svg);
   const legs = C.legs.map(L => ({ L, st: legState(L, S.cur) }));
+  isignLabels(C, legs);
   const mk = (tag, cls, attrs) => { const p = document.createElementNS(NS, tag); p.setAttribute('class', cls); for (const k in attrs) p.setAttribute(k, attrs[k]); C.ov.appendChild(p); return p; };
   // dc-link capacitors: the branch current in gold (the neutral-point colour), width ∝ |i| on the legs' scale, one
   // arrowhead per wire piece in the current direction, the symbol lit; beside it ↑ charging (v_C rising) / ↓ discharging.
