@@ -26,7 +26,7 @@ function legendItems(J) {
     ...(J.np_node ? [['ring', '--gold', np ? 'through {' + np + '}' : 'through the neutral point']] : []),
     ...((J.srcs || []).length ? [['arrow', '--dc', 'dc current']] : []),
     ...((J.caps || []).length ? [['line', '--gold', J.np_node && np ? 'current at {' + np + '}' : 'capacitor current'], ['chg', '--np-ink', 'charging / discharging']] : []),
-    ['iref', '--ink-2', 'direction of {i_x} at the cursor'],          // the i_x arrows beside the output wires
+    ['iref', '--ink-2', 'direction of {i_x} at the cursor (> 0: as drawn)'],          // the i_x arrows beside the output wires
     ['note', '', 'width ∝ |{i}|']];
 }
 function legendHTML(J) {
@@ -261,22 +261,40 @@ const PLACE_ICON = {
   capw: '<path d="M12 2v7M5 9h14M5 13h14M12 13v7M29 18V4M26 7l3-3 3 3M38 4v14M35 15l3 3 3-3"/>',
 };
 
-// The drawn i_x arrow beside each output wire turns to the direction the current flows at the cursor (user, 2026-11-05:
-// a fixed reference arrow next to a current flowing the other way confused readers). |i| < i_eps: the drawn direction.
-// The flip is a mirror along the arrow's own axis, about the middle of its drawing, so it stays in place.
+// The drawn i_x arrow beside each output wire turns to the direction the current flows at the cursor, and its label
+// reads "i_a > 0" / "i_a < 0" (the sign against the drawn reference direction) (user, 2026-11-05). |i| < i_eps: the
+// drawn direction and plain i_a. The flip is a mirror along the arrow's own axis about the middle of its drawing; the
+// label (the <text> reading i_x nearest to the arrow) is centred over the arrow, so the longer text grows to both sides.
 function iArrows(C, legs) {
   if (!C.iarr) {
     C.iarr = {};
+    const texts = [...C.svg.querySelectorAll('text')];
     for (const { L } of legs) {
       const el = C.svg.querySelector(`[data-sym="arrow_i"][data-key="i${L.x}"]`); if (!el) continue;
-      const b = el.getBBox();
-      C.iarr[L.x] = { el, base: el.getAttribute('transform') || '', cx: b.x + b.width / 2 };
+      const b = el.getBBox(), m = el.transform.baseVal.consolidate(), ax = b.x + (m ? m.matrix.e : 0), ay = b.y + (m ? m.matrix.f : 0);
+      let lab = null, bd = Infinity;
+      for (const t of texts) {
+        if (t.textContent.replace(/\s/g, '') !== 'i' + L.x) continue;
+        const d = Math.hypot(+t.getAttribute('x') - ax, +t.getAttribute('y') - ay);
+        if (d < bd) { bd = d; lab = t; }
+      }
+      if (lab) { lab.setAttribute('x', +(ax + b.width / 2).toFixed(3)); lab.setAttribute('text-anchor', 'middle'); }
+      C.iarr[L.x] = { el, lab, base: el.getAttribute('transform') || '', cx: b.x + b.width / 2 };
     }
   }
   for (const { L, st } of legs) {
     const a = C.iarr[L.x]; if (!a) continue;
     a.el.setAttribute('transform', a.base + (st.sign === '-' ? ` translate(${+(2 * a.cx).toFixed(3)},0) scale(-1,1)` : ''));
     a.el.setAttribute('data-dir', st.sign === '-' ? 'reversed' : 'drawn');
+    const t = a.lab; if (!t) continue;
+    t.querySelectorAll('.cv-isign').forEach(e => e.remove());
+    if (st.sign === '0') continue;
+    const sub = t.querySelectorAll('tspan')[1], big = t.querySelector('tspan');
+    const sp = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+    sp.setAttribute('class', 'cv-isign'); sp.setAttribute('font-size', big ? big.getAttribute('font-size') : '8.35');
+    sp.setAttribute('font-style', 'normal'); if (sub && sub.getAttribute('dy')) sp.setAttribute('dy', -parseFloat(sub.getAttribute('dy')));
+    sp.textContent = st.sign === '+' ? ' > 0' : ' < 0';     // relation with a four-per-em space each side
+    t.appendChild(sp);
   }
 }
 // ---------------------------------------------------------------- circuit state at the cursor
