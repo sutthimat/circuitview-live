@@ -57,7 +57,8 @@ async function unpack(b64) {                              // gzip + base64 -> Fl
 }
 async function arr(key, run = S.run) {
   const k = run + '|' + key;
-  if (!S.arr[k]) S.arr[k] = EMB ? (key in EMB.arr ? unpack(EMB.arr[key]) : Promise.reject(new Error(key))) :
+  const ek = EMB && (k in EMB.arr ? k : key);                     // a file of several runs keys its arrays '<run>|<key>'
+  if (!S.arr[k]) S.arr[k] = EMB ? (ek in EMB.arr ? unpack(EMB.arr[ek]) : Promise.reject(new Error(key))) :
     fetch(`/api/arr?id=${encodeURIComponent(run)}&key=${encodeURIComponent(key)}`)
       .then(r => { if (!r.ok) throw new Error(key); return r.arrayBuffer(); }).then(b => new Float64Array(b));
   return S.arr[k];
@@ -181,13 +182,13 @@ const LOAD_ICON = {
   box: '<path d="M12 1v7M23 1v7M34 1v7"/><path d="M4.4 9.8v10.4h36.6" stroke-width="2.2" stroke-linecap="butt"/><rect x="5" y="8" width="36" height="11" fill="var(--surface)"/>',
 };
 function setLoadPlace(id) {
-  S.loadPlace = null; store.set(PLACE_KEY, id);
+  S.loadPlace = EMB ? id : null; store.set(PLACE_KEY, id);          // a file stores nothing: the choice lives in S
   const name = S.circName; if (!name) return;
   clearTimeout(S.loadTm);
   S.loadTm = setTimeout(() => openCircuit(name).then(() => { setLayout(); redraw(); }), 150);
 }
 function setLoadStyle(id) {
-  S.loadStyle = null; store.set(LOAD_KEY, id);
+  S.loadStyle = EMB ? id : null; store.set(LOAD_KEY, id);
   const name = S.circName; if (!name) return;
   clearTimeout(S.loadTm);                                          // arrow keys walk the radios: load the last one only
   S.loadTm = setTimeout(() => openCircuit(name).then(() => { setLayout(); redraw(); }), 150);
@@ -227,11 +228,11 @@ function syncSettings() {
     'Sampling period under the circuit', '3-level runs') : '') +
     opt('capwchk', capWords(), capsOk, PLACE_ICON.capw, 'Charging / Discharging', 'no dc-link capacitors');
   if (hasTsp) $('#tspchk').onchange = e => { window.tspSetting(e.target.checked); syncSettings(); };
-  $('#capwchk').onchange = e => { store.set(CAPW_KEY, e.target.checked); syncSettings(); if (S.circ) drawCircuit(); };
+  $('#capwchk').onchange = e => { S.capw = e.target.checked; store.set(CAPW_KEY, e.target.checked); syncSettings(); if (S.circ) drawCircuit(); };
 }
 // the words Charging / Discharging beside each dc-link capacitor, read upward in the gap above its plates (default on)
 const CAPW_KEY = 'circuitview.capwords';
-function capWords() { return store.get(CAPW_KEY) !== false; }
+function capWords() { return S.capw !== undefined ? S.capw : store.get(CAPW_KEY) !== false; }
 // the drawing's label of capacitor id (a <text> reading e.g. C1), found once per circuit
 function capName(C, id) {
   if (!C.capNames) C.capNames = {};
