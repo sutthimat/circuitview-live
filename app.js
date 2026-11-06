@@ -12,6 +12,17 @@ const PHASE = { a: '--pa', b: '--pb', c: '--pc', d: '--pd', e: '--pe', f: '--pf'
 // leg colours: a CSS variable of the page (circuit.json 'color': '--pa' ...) or a colour; never an invalid colour
 const LEG_FALLBACK = ['#1f5fbf', '#c0392b', '#2e8b57', '#a8661c', '#6b4fa0', '#1f7f86'];
 function legColor(L) { const v = L.color || '', c = v.startsWith('--') ? css(v) : v; return c || LEG_FALLBACK[L.i % LEG_FALLBACK.length]; }
+// colour at the cursor: a multileg region may name it (which winding current flows; a sum: net ink), else the leg's
+const stColor = (L, st) => (st && st.color ? css(st.color) : '') || legColor(L);
+// net colour of a dc-side piece (multileg circuits, current_colors): the signed sum of the users' mixes; the signals
+// left with a nonzero coefficient decide (one -> its colour, several -> the net colour); null for other circuits (dc
+// ink as before). terms: [[mix, factor], ...]
+function netColor(terms) {
+  const J = S.circ && S.circ.J, cc = J && J.current_colors; if (!cc) return null;
+  const c = {}; for (const [m, f] of terms) if (m) for (const n in m) c[n] = (c[n] || 0) + f * m[n];
+  const u = Object.keys(c).filter(n => Math.abs(c[n]) > 1e-9);
+  return u.length === 1 ? css(cc[u[0]]) : u.length > 1 ? css(J.net_color || '--dc') : null;
+}
 // conduction style variant: ?style=A (phase-tinted) | B (ink + single accent) | C (spotlight, default)
 const CV_STYLE = (/^[ABC]$/i.exec(new URLSearchParams(location.search).get('style') || '') || ['C'])[0].toUpperCase();
 document.documentElement.dataset.cvStyle = CV_STYLE;
@@ -22,11 +33,15 @@ const CHG_SVG = dir => `<svg class="chg" viewBox="0 0 8 10" aria-hidden="true"><
 function legendItems(J) {
   const np = (/(\S+)$/.exec(J.np_label || '') || [])[1];                 // 'the dc midpoint O' -> O
   return [['line', '--dev-off', 'gate off'], ['line', '--dev-on', 'gate on, not conducting'],
-    [CV_STYLE === 'B' ? 'line' : 'phases', '--cond-ink', 'conducting'],
+    // multileg circuits colour the lanes by winding current: one swatch per current, the net ink for a sum of them
+    ...(J.current_colors ? [...Object.entries(J.current_colors).map(([n, c]) => ['line', c, 'current {' + ((J.current_labels || {})[n] || n).replace(/[{}]/g, '') + '}']),
+      ['line', J.net_color || '--dc', 'sum of both currents'], ['arrow', '--ink-2', 'arrowhead on a lane: actual direction']]
+      : [[CV_STYLE === 'B' ? 'line' : 'phases', '--cond-ink', 'conducting']]),
     ...(J.np_node ? [['ring', '--gold', np ? 'through {' + np + '}' : 'through the neutral point']] : []),
-    ...((J.srcs || []).length ? [['arrow', '--dc', 'dc current']] : []),
-    ...((J.caps || []).length ? [['line', '--gold', J.np_node && np ? 'current at {' + np + '}' : 'capacitor current'], ['chg', '--np-ink', 'charging / discharging']] : []),
-    ['iref', '--ink-2', 'direction of {i_x} at the cursor (> 0: as drawn)'],          // the i_x arrows beside the output wires
+    ...((J.srcs || []).length && !(J.legend_omit || []).includes('dc') ? [['arrow', '--dc', 'dc current']] : []),
+    ...((J.caps || []).length && !(J.legend_omit || []).includes('caps') ? [['line', '--gold', J.np_node && np ? 'current at {' + np + '}' : 'capacitor current'], ['chg', '--np-ink', 'charging / discharging']] : []),
+    // the i_x arrows beside the output wires (multileg: fixed reference arrows of the winding currents)
+    ['iref', '--ink-2', J.current_labels ? 'reference arrow (' + Object.values(J.current_labels).map(l => '{' + l.replace(/[{}]/g, '') + '}').join(', ') + ' > 0)' : 'direction of {i_x} at the cursor (> 0: as drawn)'],
     ['note', '', 'width ∝ |{i}|']];
 }
 function legendHTML(J) {
@@ -89,10 +104,10 @@ async function openRunNow(id, seq) {
   const sig = {}; for (const s of meta.signals) sig[s.name] = { ...s };
   if (S.circName !== meta.circuit) await openCircuit(meta.circuit);
   const need = new Set();
-  if (S.circ) for (const L of S.circ.legs) { L.gates.forEach(g => need.add(g)); need.add(L.current); }
+  if (S.circ) for (const L of S.circ.legs) { L.gates.forEach(g => need.add(g)); need.add(L.current); (L.currents || []).forEach(n => need.add(n)); }
   if (S.circ) for (const c of [...(S.circ.J.caps || []), ...(S.circ.J.srcs || [])]) need.add(c.i);
   if (S.rows.length) S.rows.forEach(r => r.sigs.forEach(n => need.add(n)));
-  else defaultRows(sig).forEach(r => r.sigs.forEach(n => need.add(n)));
+  else defaultRows(sig, meta).forEach(r => r.sigs.forEach(n => need.add(n)));
   await Promise.all([...need].filter(n => sig[n]).map(n => loadSig(n, sig, id)));
   if (seq !== openSeq) return;                                   // overtaken by a newer request
   S.run = id; S.meta = meta; S.sig = sig;
@@ -112,7 +127,9 @@ async function openRunNow(id, seq) {
   if ($('#run').options.length) runTitle();
   buildRows(); redraw();
 }
-function defaultRows(sig = S.sig) {
+function defaultRows(sig = S.sig, meta = S.meta) {
+  // a run may name its own rows (meta.rows: [[signal, ...], ...]; Anwa instance, 2026-11-05), signals it lacks dropped
+  if (meta && Array.isArray(meta.rows)) return meta.rows.map(r => r.filter(n => sig[n])).filter(r => r.length).map(x => ({ sigs: x }));
   // generic: first pole voltage, the leg currents of the circuit, the dc-link voltages, the neutral-point voltage
   // v_d = v_C1 - v_C2 (its own row: its scale is a few volts; user, 2026-11-05), the gates of the first leg, the
   // neutral-point current (rows that would be empty are dropped)
@@ -120,7 +137,7 @@ function defaultRows(sig = S.sig) {
   const legs = S.circ ? S.circ.legs : [];
   const r = [
     grp('pole voltage').slice(0, 1),
-    legs.length ? legs.map(L => L.current).filter(n => sig[n]) : grp('current').slice(0, 4),
+    legs.length ? [...new Set(legs.map(L => L.current))].filter(n => sig[n]) : grp('current').slice(0, 4),   // multileg: legs share currents
     grp('dc link').filter(n => n !== 'v_d').slice(0, 2),
     ['v_d'].filter(n => sig[n]),
     legs.length ? legs[0].gates.filter(n => sig[n]) : [],
@@ -136,8 +153,10 @@ async function openCircuit(name) {
   // load symbol (Settings): circuit.json is the default drawing and lists the others (legcells.finish, load)
   // and placement (below the inverter / to its right): circuit.json lists every drawing (style x placement)
   if (J.load) {
-    const pref = (EMB && EMB.prefs) || {};                         // a shared file may open on another drawing than 'below'
-    const want = S.loadStyle || store.get(LOAD_KEY) || pref.load, place = S.loadPlace || store.get(PLACE_KEY) || pref.place || 'below';
+    // nothing chosen yet: the standard view, load to the right, R + L per phase (user, 2026-11-06); a shared file may
+    // carry its own (prefs); a circuit without that drawing falls back to its default one
+    const pref = (EMB && EMB.prefs) || VIEW_DEFAULT;
+    const want = S.loadStyle || store.get(LOAD_KEY) || pref.load, place = S.loadPlace || store.get(PLACE_KEY) || pref.place || VIEW_DEFAULT.place;
     const ent = (J.load.styles || []).find(s => s.id === want) || (J.load.styles || []).find(s => s.id === J.load.style);
     const file = ent && (place === 'right' && ent.file_right ? ent.file_right : ent.file);
     if (file && file !== 'circuit.json') { try { J = await getJSON(`circuits/${name}/${file}`); } catch (e) { /* not there: the default drawing */ } }
@@ -152,7 +171,7 @@ async function openCircuit(name) {
   svg.querySelectorAll('[id^="anc-"]').forEach(el => { const b = el.getBBox(); anchors[el.id.slice(4)] = [b.x + b.width / 2, b.y + b.height / 2]; });
   const legs = J.legs.map((x, i) => {
     if (typeof x === 'object')                                   // per-leg table (netlist + solver + router, v2)
-      return { x: x.name, i, current: x.current, gates: x.gates, dev: { ...x.devices }, table: x.table,
+      return { x: x.name, i, current: x.current, currents: x.currents, gates: x.gates, dev: { ...x.devices }, table: x.table,
         color: x.color || (J.colors ? J.colors[i] : PHASE[x.name]) };
     const L = J.leg, dev = {};
     for (const k in L.devices) dev[subst(k, x)] = { ...L.devices[k], gate: L.devices[k].gate && subst(L.devices[k].gate, x) };
@@ -176,6 +195,7 @@ async function openCircuit(name) {
 // The choice is remembered (circuitview.load) and applies to every circuit that has that drawing; the others keep
 // their default. S.loadStyle: a style asked for by a state (applyState: a slide or an exported file), not stored.
 const LOAD_KEY = 'circuitview.load', PLACE_KEY = 'circuitview.loadplace';
+const VIEW_DEFAULT = { place: 'right', load: 'rl' };                // the standard view when nothing is stored
 const LOAD_ICON = {
   rle: '<path d="M0 11h2l1.2-4.5 2.2 9 2.2-9 2.2 9 1.2-4.5h1.6a2.7 2.7 0 0 1 5.4 0 2.7 2.7 0 0 1 5.4 0 2.7 2.7 0 0 1 5.4 0H33"/><path d="M33 11a5 5 0 1 1 10 0 5 5 0 1 1-10 0M35.2 11c.95-2.4 1.9-2.4 2.8 0s1.85 2.4 2.8 0M43 11h3"/>',
   rl: '<path d="M1 11h5l1.5-4.5 2.6 9 2.6-9 2.6 9 1.5-4.5h2.2a3 3 0 0 1 6 0 3 3 0 0 1 6 0 3 3 0 0 1 6 0H45"/>',
@@ -200,7 +220,7 @@ function syncSettings() {
   const focused = box.contains(document.activeElement);
   box.innerHTML = ['rle', 'rl', 'zbox', 'box'].map(id => {
     const ok = have.includes(id), on = id === cur, nm = { rle: 'R + L + emf', rl: 'R + L', zbox: 'Box per phase', box: 'One box' }[id];
-    const tag = !ok ? 'not drawn' : L.default === id ? 'default' : '';
+    const tag = !ok ? 'not drawn' : id === VIEW_DEFAULT.load ? 'default' : L.default === id ? 'as simulated' : '';
     return `<label class="${on ? 'on' : ''}${ok ? '' : ' off'}"${ok && L.default === id ? ' title="the drawing of the simulated circuit"' : ''}>` +
       `<input type="radio" name="loadsym" value="${id}"${on ? ' checked' : ''}${ok ? '' : ' disabled'}${tag ? ` aria-describedby="ld-${id}"` : ''}>` +
       `<svg viewBox="0 0 46 22" aria-hidden="true">${LOAD_ICON[id]}</svg><span class="lnm">${nm}</span>${tag ? `<span class="dflt" id="ld-${id}">${tag}</span>` : ''}</label>`;
@@ -212,7 +232,7 @@ function syncSettings() {
   const places = L && L.places ? L.places : ['below'], pcur = L ? (L.place || 'below') : 'below', pf = pb.contains(document.activeElement);
   pb.innerHTML = ['below', 'right'].map(id => {
     const ok = places.includes(id), on = id === pcur, nm = { below: 'Below the inverter', right: 'Right of the inverter' }[id];
-    const tag = !ok ? 'not drawn' : id === 'below' ? 'default' : '';
+    const tag = !ok ? 'not drawn' : id === VIEW_DEFAULT.place ? 'default' : '';
     return `<label class="${on ? 'on' : ''}${ok ? '' : ' off'}">` +
       `<input type="radio" name="loadplace" value="${id}"${on ? ' checked' : ''}${ok ? '' : ' disabled'}${tag ? ` aria-describedby="lp-${id}"` : ''}>` +
       `<svg viewBox="0 0 46 22" aria-hidden="true">${PLACE_ICON[id]}</svg><span class="lnm">${nm}</span>${tag ? `<span class="dflt" id="lp-${id}">${tag}</span>` : ''}</label>`;
@@ -302,9 +322,13 @@ function iArrows(C, legs) {
 // ---------------------------------------------------------------- circuit state at the cursor
 function legState(L, t) {
   const g = L.gates.map(n => Math.round(valueAt(n, t))), key = g.join('');
-  const i = valueAt(L.current, t), eps = S.circ.J.i_eps || 0;
-  const sign = i > eps ? '+' : i < -eps ? '-' : '0';
   const row = L.table[key];
+  // multi-output legs (multileg.py): a row's regions give the leg current as a mix of signals (net current by KCL),
+  // the first region whose sign conditions hold ('+': sum >= 0, '-': sum < 0); other legs read L.current
+  const mix = m => Object.keys(m).reduce((a, n) => a + m[n] * valueAt(n, t), 0);
+  const reg = row && row.regions ? row.regions.find(r => r.if.every(([m, s]) => (mix(m) >= 0) === (s === '+'))) : null;
+  const i = row && row.regions ? (reg ? mix(reg.mix) : NaN) : valueAt(L.current, t), eps = S.circ.J.i_eps || 0;
+  const sign = i > eps ? '+' : i < -eps ? '-' : '0';
   const cs = row ? (row[sign] || (sign === '0' ? { on: [], path: [] } : null)) : null;
   // |i| below i_eps: no conduction is drawn, but the leg's connection is shown as an idle (dashed, arrowless) path:
   // the '+' path when both signs end at the same rail, both paths when they differ (dead-time: the rail follows the sign)
@@ -314,7 +338,7 @@ function legState(L, t) {
     if (p && p.path && p.path.length) idle.push({ path: p.path, rail: p.rail });
     if (m && m.path && m.path.length && (!p || p.rail !== m.rail)) idle.push({ path: m.path, rail: m.rail });
   }
-  return { g, key, i, sign, state: row ? row.state : '?', known: !!cs, on: cs ? cs.on.map(d => subst(d, L.x)) : [],
+  return { g, key, i, sign, color: reg && reg.color ? reg.color : null, comp: reg ? Object.keys(reg.mix) : null, mix: reg ? reg.mix : null, state: row ? row.state : '?', known: !!cs, on: cs ? cs.on.map(d => subst(d, L.x)) : [],
     path: cs ? cs.path.map(a => typeof a === 'string' ? subst(a, L.x) : a) : [], np: !!(cs && cs.np), rail: cs ? cs.rail : null, idle };
 }
 // dc-link capacitor at the cursor: i_<id> positive = charging (+ plate first along 'pieces'); |i| < i_eps: steady;
@@ -434,7 +458,9 @@ function shareGeometry(drawn, eps, extra = [], inner = null) {
     if (pc.users.length < 2) continue;
     const net = pc.users.reduce((s, u) => s + u.dir * Math.abs(drawn[u.di].st.i), 0);
     const sig = pc.users.map(u => u.di).sort().join(',') + ':' + Math.abs(net).toFixed(9);   // the sign follows the piece's key
-    segs.push({ key, sig, net, users: pc.users.map(u => drawn[u.di].L.x), from: net >= 0 ? pc.a : pc.b, to: net >= 0 ? pc.b : pc.a });
+    // which currents the piece carries NET (multileg): each user's mix along the piece's direction, times the sign of its current
+    const terms = pc.users.map(u => [drawn[u.di].st.mix, u.dir * Math.sign(drawn[u.di].st.i)]);
+    segs.push({ key, sig, net, terms, users: pc.users.map(u => drawn[u.di].L.x), from: net >= 0 ? pc.a : pc.b, to: net >= 0 ? pc.b : pc.a });
   }
   const chains = [], used = new Set(), at = new Map();
   for (const g of segs) { const k = g.sig + '@' + keyP(g.from); if (!at.has(k)) at.set(k, []); at.get(k).push(g); }
@@ -447,7 +473,7 @@ function shareGeometry(drawn, eps, extra = [], inner = null) {
       if (!nx) break;
       used.add(nx.key); pts.push(nx.to); g = nx;
     }
-    chains.push({ pts: straight(pts), net: g0.net, users: g0.users });
+    chains.push({ pts: straight(pts), net: g0.net, users: g0.users, terms: g0.terms });
   }
   return chains.filter(c => Math.abs(c.net) > eps);
 }
@@ -562,7 +588,8 @@ function drawCircuit() {
     });
   };
   const srcs = (C.J.srcs || []).map(c => srcState(c, legs, caps)), dcInk = css('--dc');
-  for (const ss of srcs) if (ss.sign !== '0') branch('src', ss.c.id, ss.c.pieces, ss.sign, ss.i, dcInk);
+  for (const ss of srcs) if (ss.sign !== '0') branch('src', ss.c.id, ss.c.pieces, ss.sign, ss.i,
+    netColor(legs.filter(({ st }) => st.rail === 'P' && st.sign !== '0').map(({ st }) => [st.mix, 1])) || dcInk);   // i_dc = sum of the P-side legs
   for (const cs of caps) {
     const sym = C.svg.querySelector(`[data-sym][data-key="${cs.c.id}"]`);
     if (sym) sym.classList.toggle('cv-cap-on', cs.sign !== '0');
@@ -602,7 +629,7 @@ function drawCircuit() {
   let npAny = false;
   const drawn = [];
   for (const { L, st } of legs) {
-    const col = legColor(L);
+    const col = stColor(L, st);
     for (const id in L.dev) {
       const el = C.svg.getElementById(id); if (!el) continue;
       const d = L.dev[id]; el.classList.remove('cv-on', 'cv-off', 'cv-cond-igbt', 'cv-cond-diode');
@@ -639,14 +666,14 @@ function drawCircuit() {
   for (const N of chains) {
     const [p, q] = N.pts, nets = C.J.nets || {}, m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];   // a chain stays on one net
     N.net_name = Object.keys(nets).find(n => onNet(m, nets[n])) || '';
-    N.col = N.net_name === 'O' ? gold : dcInk;
+    N.col = N.net_name === 'O' ? gold : (netColor(N.terms || []) || dcInk);
     N.w = K * (1 + 1.8 * Math.min(1, Math.abs(N.net) / S.imax));
   }
   const hops = C.J.hops || [], tol = 3 * K;                           // drawn paths match a hop chord within tol
   // idle connections (|i| < i_eps): thin dashed line in the leg colour, no arrows, under everything else
   for (const { L, st } of legs) for (const id of st.idle) {
     const pts = id.path.map(a => typeof a === 'string' ? C.anchors[subst(a, L.x)] : a).filter(Boolean);
-    if (pts.length > 1) mk('path', 'cv-path-idle', { d: pathD(pts, hops), 'data-pts': polyD(pts), stroke: legColor(L), 'data-leg': L.x, 'data-rail': id.rail || '' });
+    if (pts.length > 1) mk('path', 'cv-path-idle', { d: pathD(pts, hops), 'data-pts': polyD(pts), stroke: stColor(L, st), 'data-leg': L.x, 'data-rail': id.rail || '' });
   }
   // the straight step that jumps a hop is painted again after every other part (case and lane last), so the wire it
   // jumps over lies BEHIND the arc, as in the drawing (user, 2026-11-05). Only that step goes on top: the rest of its
@@ -694,7 +721,7 @@ function drawCircuit() {
   }
   // load parts: lit in the leg colour while their leg conducts; the line stops at the part's body (a paper patch over
   // the body, wide enough for the widest underlay), so the lit zigzag / coil itself carries the current
-  const lit = new Map(legs.map(({ L, st }) => [L.x, st.sign !== '0' && st.path.length ? legColor(L) : null]));
+  const lit = new Map(legs.map(({ L, st }) => [L.x, st.sign !== '0' && st.path.length ? stColor(L, st) : null]));
   const half = (K * 2.8 + 2.2 * K) / 2 + 0.3 * K;
   for (const ld of C.J.loads || []) {
     const sym = C.svg.querySelector(`[data-sym][data-key="${ld.id}"]`), col = lit.get(ld.leg);
@@ -706,7 +733,7 @@ function drawCircuit() {
   }
   // one cv-path per leg on the exact table geometry (with its hops): the leg's semantic record, read by the tests;
   // it is not painted, the lanes above show it
-  for (const D of drawn) mk('path', 'cv-path', { d: pathD(D.pts, hops), 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w });
+  for (const D of drawn) mk('path', 'cv-path', { d: pathD(D.pts, hops), 'data-pts': D.dp, stroke: D.col, 'stroke-width': D.w, 'data-leg': D.L.x });
   // one slim arrowhead per straight run, at its middle (or at 1/3, 2/3 when that is clear of a drawn i-arrow symbol)
   // keep-out: drawn i-arrow symbols (radius 6); charge arrows: no leg arrowhead level with one (|dy| ≥ 6.5 within 10 sideways)
   const marks = (C.J.caps || []).map(c => c.mark), hh = 2.2 * K;                   // hh: half the head length
@@ -948,6 +975,7 @@ const TRACE_COLORS = ['#1f5fbf', '#c0392b', '#2e8b57', '#e07b00', '#7b3fb5', '#0
 const userColors = () => S.colors || (S.colors = store.get(COLOR_KEY) || {});
 function sigColor(n, k) {
   const uc = userColors()[n]; if (uc) return uc;
+  const mc = S.meta && S.meta.colors && S.meta.colors[n]; if (mc) return mc;       // the run's own defaults (Anwa instance)
   const m = /^(?:i|v|s)_([a-f])(?:O|N)?$/.exec(n) || /^g_S([a-f])\d$/.exec(n);
   if (m) return css(PHASE[m[1]]) || LEG_FALLBACK['abcdef'.indexOf(m[1])];
   return PALETTE[k % PALETTE.length];

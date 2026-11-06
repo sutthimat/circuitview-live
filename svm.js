@@ -429,6 +429,7 @@
       if (!P.svg) { build(document.getElementById('svmbody') || document.getElementById('svm')); harpoons(P.svg); }
       update();
     }
-    if (P.ok || tspBox) tspDraw();              // the period under the circuit (hidden again for other runs)
+    if (P.ok || (tspBox && !(window.svmAlt && window.svmAlt.active()))) tspDraw();   // the period under the circuit (hidden
+                                                // again for other runs; svm_snpc.js draws it for the ten-switch runs)
   };
 })();

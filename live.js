@@ -62,7 +62,7 @@
     window.CV_EMBED = emb;
     $('#livepick').hidden = true;
     try { if (localStorage.getItem('circuitview.details') === null) localStorage.setItem('circuitview.details', 'false'); } catch (e) { /* no storage */ }   // a slide starts with the waveforms, Details folded
-    for (const f of ['app.js', 'snapshot.js', 'video.js', 'svm.js', 'brand.js']) await load(f);   // in order (build.py APP_JS)
+    for (const f of ['app.js', 'snapshot.js', 'video.js', 'svm.js', 'svm_snpc.js', 'brand.js']) await load(f);   // in order (build.py APP_JS)
     slideLayout();
     lighter();
     addPlay();
